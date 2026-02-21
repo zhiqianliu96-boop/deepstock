@@ -4,6 +4,47 @@ export interface AnalysisRequest {
   lang?: string;
 }
 
+export interface DuPontData {
+  net_margin?: number;
+  asset_turnover?: number;
+  equity_multiplier?: number;
+  asset_turnover_x_leverage?: number;
+  roe?: number;
+}
+
+export interface ShareholderData {
+  top_holders?: Record<string, any>[];
+  holder_count?: number;
+  top10_total_pct?: number;
+}
+
+export interface AnalystConsensus {
+  buy?: number;
+  hold?: number;
+  sell?: number;
+  ratings_distribution?: Record<string, number>;
+  target_price_mean?: number;
+  target_price_high?: number;
+  target_price_low?: number;
+  record_count?: number;
+  latest?: Record<string, any>[];
+}
+
+export interface NorthboundFlow {
+  recent_net_buy_total?: number;
+  recent_5d_net?: number;
+  recent_10d_net?: number;
+  trend?: string;
+  daily_net?: number[];
+  dates?: string[];
+}
+
+export interface MarginSentiment {
+  margin_balance?: number;
+  margin_buy?: number;
+  short_balance?: number;
+}
+
 export interface FundamentalDetail {
   total: number;
   valuation_score: number;
@@ -14,6 +55,9 @@ export interface FundamentalDetail {
   metrics: Record<string, any>;
   peer_comparison: Record<string, number>;
   company_profile: Record<string, any>;
+  dupont?: DuPontData;
+  shareholders?: ShareholderData;
+  analyst_consensus?: AnalystConsensus;
 }
 
 export interface TechnicalDetail {
@@ -30,6 +74,8 @@ export interface TechnicalDetail {
   chip_data: Record<string, any>;
   patterns: PatternAlert[];
   chart_data: ChartData;
+  northbound_flow?: NorthboundFlow;
+  margin_data?: MarginSentiment;
 }
 
 export interface PatternAlert {

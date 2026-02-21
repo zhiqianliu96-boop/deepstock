@@ -157,6 +157,35 @@ const en = {
   'kline.low': 'Low',
   'kline.high': 'High',
   'kline.volume': 'Volume',
+  'kline.intraday': 'Intraday',
+
+  // Stock Info Bar
+  'stockinfo.turnover_rate': 'Turnover',
+
+  // Fundamental - DuPont & Deep Data
+  'fundamental.dupont': 'DuPont Decomposition',
+  'fundamental.dupont_margin': 'Net Margin',
+  'fundamental.dupont_turnover': 'Asset Turnover',
+  'fundamental.dupont_leverage': 'Equity Multiplier',
+  'fundamental.shareholders': 'Top Shareholders',
+  'fundamental.shareholder_name': 'Shareholder',
+  'fundamental.shareholder_pct': 'Holding %',
+  'fundamental.top10_pct': 'Top 10 Total',
+  'fundamental.analyst_consensus': 'Analyst Consensus',
+  'fundamental.analyst_buy': 'Buy',
+  'fundamental.analyst_hold': 'Hold',
+  'fundamental.analyst_sell': 'Sell',
+  'fundamental.target_price': 'Target Price',
+
+  // Technical - Northbound & Margin
+  'technical.northbound': 'Northbound (HSGT) Flow',
+  'technical.northbound_5d': '5-Day Net',
+  'technical.northbound_10d': '10-Day Net',
+  'technical.northbound_trend': 'Trend',
+  'technical.margin': 'Margin Trading',
+  'technical.margin_balance': 'Margin Balance',
+  'technical.margin_buy': 'Margin Buy',
+  'technical.short_balance': 'Short Balance',
 } as const;
 
 const zh: Record<keyof typeof en, string> = {
@@ -314,6 +343,35 @@ const zh: Record<keyof typeof en, string> = {
   'kline.low': '最低',
   'kline.high': '最高',
   'kline.volume': '成交量',
+  'kline.intraday': '分时',
+
+  // Stock Info Bar
+  'stockinfo.turnover_rate': '换手率',
+
+  // Fundamental - DuPont & Deep Data
+  'fundamental.dupont': '杜邦分析',
+  'fundamental.dupont_margin': '净利率',
+  'fundamental.dupont_turnover': '资产周转率',
+  'fundamental.dupont_leverage': '权益乘数',
+  'fundamental.shareholders': '十大股东',
+  'fundamental.shareholder_name': '股东名称',
+  'fundamental.shareholder_pct': '持股比例',
+  'fundamental.top10_pct': '前十合计',
+  'fundamental.analyst_consensus': '分析师共识',
+  'fundamental.analyst_buy': '买入',
+  'fundamental.analyst_hold': '持有',
+  'fundamental.analyst_sell': '卖出',
+  'fundamental.target_price': '目标价',
+
+  // Technical - Northbound & Margin
+  'technical.northbound': '北向资金',
+  'technical.northbound_5d': '5日净买入',
+  'technical.northbound_10d': '10日净买入',
+  'technical.northbound_trend': '趋势',
+  'technical.margin': '融资融券',
+  'technical.margin_balance': '融资余额',
+  'technical.margin_buy': '融资买入额',
+  'technical.short_balance': '融券余额',
 };
 
 export const locales = { en, zh } as const;

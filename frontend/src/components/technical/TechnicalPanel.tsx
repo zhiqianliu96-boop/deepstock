@@ -40,6 +40,10 @@ export default function TechnicalPanel({ detail }: Props) {
   const chip = detail.chip_data || {};
   const { t } = useLocale();
 
+  // Deep data from breakdown (populated by fundamental enrichment, passed through)
+  const nb = detail.northbound_flow || (detail.breakdown as any)?.northbound_flow || null;
+  const margin = detail.margin_data || (detail.breakdown as any)?.margin_sentiment || null;
+
   return (
     <div className="space-y-6">
       {/* Sub-scores */}
@@ -181,6 +185,89 @@ export default function TechnicalPanel({ detail }: Props) {
               <div className="bg-bg-primary rounded p-3">
                 <div className="text-text-muted text-xs">{t('technical.chip_health')}</div>
                 <div className={`font-medium ${chip.health === 'healthy' ? 'text-accent-green' : chip.health === 'risky' ? 'text-accent-red' : 'text-text-secondary'}`}>{chip.health}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Northbound Flow (CN Only) */}
+      {nb && (nb.recent_5d_net != null || nb.trend) && (
+        <div className="bg-bg-card border border-border rounded-xl p-5">
+          <h3 className="text-text-primary font-medium mb-3">{t('technical.northbound')}</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-3">
+            {nb.trend && (
+              <div className="bg-bg-primary rounded p-3">
+                <div className="text-text-muted text-xs">{t('technical.northbound_trend')}</div>
+                <div className={`font-medium ${nb.trend === 'accumulating' ? 'text-accent-green' : 'text-accent-red'}`}>
+                  {nb.trend}
+                </div>
+              </div>
+            )}
+            {nb.recent_5d_net != null && (
+              <div className="bg-bg-primary rounded p-3">
+                <div className="text-text-muted text-xs">{t('technical.northbound_5d')}</div>
+                <div className={`font-medium font-mono-num ${nb.recent_5d_net >= 0 ? 'text-accent-green' : 'text-accent-red'}`}>
+                  {nb.recent_5d_net >= 0 ? '+' : ''}{nb.recent_5d_net.toFixed(2)}
+                </div>
+              </div>
+            )}
+            {nb.recent_10d_net != null && (
+              <div className="bg-bg-primary rounded p-3">
+                <div className="text-text-muted text-xs">{t('technical.northbound_10d')}</div>
+                <div className={`font-medium font-mono-num ${nb.recent_10d_net >= 0 ? 'text-accent-green' : 'text-accent-red'}`}>
+                  {nb.recent_10d_net >= 0 ? '+' : ''}{nb.recent_10d_net.toFixed(2)}
+                </div>
+              </div>
+            )}
+          </div>
+          {/* Simple bar chart of daily net buy */}
+          {nb.daily_net && nb.daily_net.length > 0 && (
+            <div className="flex items-end gap-px h-16">
+              {nb.daily_net.slice(0, 20).map((val: number, i: number) => {
+                const maxAbs = Math.max(...nb.daily_net.map((v: number) => Math.abs(v)), 1);
+                const height = Math.abs(val) / maxAbs * 100;
+                return (
+                  <div
+                    key={i}
+                    className={`flex-1 rounded-t ${val >= 0 ? 'bg-accent-green/60' : 'bg-accent-red/60'}`}
+                    style={{ height: `${Math.max(2, height)}%` }}
+                    title={`${nb.dates?.[i] || ''}: ${val.toFixed(2)}`}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Margin Trading (CN Only) */}
+      {margin && (margin.margin_balance != null || margin.margin_buy != null) && (
+        <div className="bg-bg-card border border-border rounded-xl p-5">
+          <h3 className="text-text-primary font-medium mb-3">{t('technical.margin')}</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+            {margin.margin_balance != null && (
+              <div className="bg-bg-primary rounded p-3">
+                <div className="text-text-muted text-xs">{t('technical.margin_balance')}</div>
+                <div className="text-text-primary font-medium font-mono-num">
+                  {(margin.margin_balance / 1e8).toFixed(2)}亿
+                </div>
+              </div>
+            )}
+            {margin.margin_buy != null && (
+              <div className="bg-bg-primary rounded p-3">
+                <div className="text-text-muted text-xs">{t('technical.margin_buy')}</div>
+                <div className="text-text-primary font-medium font-mono-num">
+                  {(margin.margin_buy / 1e8).toFixed(2)}亿
+                </div>
+              </div>
+            )}
+            {margin.short_balance != null && (
+              <div className="bg-bg-primary rounded p-3">
+                <div className="text-text-muted text-xs">{t('technical.short_balance')}</div>
+                <div className="text-text-primary font-medium font-mono-num">
+                  {(margin.short_balance / 1e8).toFixed(2)}亿
+                </div>
               </div>
             )}
           </div>

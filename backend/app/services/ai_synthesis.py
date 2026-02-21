@@ -237,6 +237,80 @@ class AISynthesizer:
         # --- Trading Context (1.4) ---
         trading_context_section = self._build_trading_context(data_dict, indicators)
 
+        # --- Shareholder Section (deep data) ---
+        shareholder_section = ""
+        shareholders = fund_dict.get("breakdown", {}).get("shareholders") or fund_dict.get("metrics", {}).get("shareholders")
+        if shareholders and isinstance(shareholders, dict):
+            sh_lines = []
+            if shareholders.get("top10_total_pct"):
+                sh_lines.append(f"  - Top 10 holders own: {shareholders['top10_total_pct']}%")
+            if shareholders.get("holder_count"):
+                sh_lines.append(f"  - Number of major holders: {shareholders['holder_count']}")
+            top_holders = shareholders.get("top_holders", [])
+            for h in top_holders[:5]:
+                name = h.get("股东名称") or h.get("Holder") or h.get("holder") or next(iter(h.values()), "")
+                sh_lines.append(f"    * {name}")
+            if sh_lines:
+                shareholder_section = "Shareholder Structure:\n" + "\n".join(sh_lines) + "\n"
+
+        # --- Analyst Consensus Section (deep data) ---
+        analyst_section = ""
+        analyst = fund_dict.get("breakdown", {}).get("analyst_consensus") or fund_dict.get("metrics", {}).get("analyst_consensus")
+        if analyst and isinstance(analyst, dict):
+            an_lines = []
+            if "buy" in analyst:
+                an_lines.append(f"  - Buy: {analyst['buy']}, Hold: {analyst.get('hold', 0)}, Sell: {analyst.get('sell', 0)}")
+            if "ratings_distribution" in analyst:
+                an_lines.append(f"  - Distribution: {analyst['ratings_distribution']}")
+            if "target_price_mean" in analyst:
+                an_lines.append(f"  - Target Price: mean={analyst['target_price_mean']}, range=[{analyst.get('target_price_low', 'N/A')}, {analyst.get('target_price_high', 'N/A')}]")
+            if an_lines:
+                analyst_section = "Analyst Consensus:\n" + "\n".join(an_lines) + "\n"
+
+        # --- Northbound Flow Section (CN deep data) ---
+        northbound_section = ""
+        nb = fund_dict.get("breakdown", {}).get("northbound_flow") or fund_dict.get("metrics", {}).get("northbound_flow")
+        if nb and isinstance(nb, dict):
+            nb_lines = []
+            if nb.get("trend"):
+                nb_lines.append(f"  - HSGT Trend: {nb['trend']}")
+            if nb.get("recent_5d_net") is not None:
+                nb_lines.append(f"  - 5-Day Net Buy: {nb['recent_5d_net']}")
+            if nb.get("recent_10d_net") is not None:
+                nb_lines.append(f"  - 10-Day Net Buy: {nb['recent_10d_net']}")
+            if nb.get("recent_net_buy_total") is not None:
+                nb_lines.append(f"  - 20-Day Net Buy Total: {nb['recent_net_buy_total']}")
+            if nb_lines:
+                northbound_section = "Northbound (HSGT) Flow (CN):\n" + "\n".join(nb_lines) + "\n"
+
+        # --- Options Context Section (US deep data) ---
+        options_section = ""
+        options_data = data_dict.get("options_data", {})
+        if options_data and isinstance(options_data, dict) and options_data.get("expiry_dates"):
+            opt_lines = [f"  - Available expiries: {', '.join(options_data['expiry_dates'][:4])}"]
+            # Summarize nearest expiry calls/puts for covered call insight
+            for exp in options_data.get("expiry_dates", [])[:1]:
+                calls_key = f"calls_{exp}"
+                puts_key = f"puts_{exp}"
+                calls = options_data.get(calls_key, [])
+                puts = options_data.get(puts_key, [])
+                if calls:
+                    # Find ATM call IV
+                    price = None
+                    rt_data = data_dict.get("realtime_quote", {})
+                    if isinstance(rt_data, dict):
+                        price = rt_data.get("price")
+                    if price:
+                        atm_calls = sorted(calls, key=lambda c: abs(c.get("strike", 0) - price))[:3]
+                        for c in atm_calls:
+                            iv = c.get("impliedVolatility")
+                            if iv is not None:
+                                opt_lines.append(f"  - ATM Call strike={c.get('strike')}, IV={iv:.2%}, bid={c.get('bid')}, ask={c.get('ask')}")
+                if puts:
+                    opt_lines.append(f"  - {exp}: {len(puts)} put contracts available")
+            if len(opt_lines) > 1:
+                options_section = "Options Chain (for covered call analysis):\n" + "\n".join(opt_lines) + "\n"
+
         # --- Assemble ---
         lang_instruction = ""
         if lang and lang.startswith("zh"):
@@ -247,6 +321,12 @@ class AISynthesizer:
                 "sentiment_interpretation, risks, catalysts, position_advice, and ALL dashboard fields. "
                 "Only the JSON keys and verdict/enum values should remain in English.\n"
             )
+
+        # Build deep data section
+        deep_data_section = ""
+        if shareholder_section or analyst_section or northbound_section or options_section:
+            deep_data_parts = [s for s in [shareholder_section, analyst_section, northbound_section, options_section] if s]
+            deep_data_section = "--- Deep Data Insights ---\n" + "\n".join(deep_data_parts) + "\n"
 
         prompt = (
             "=== STOCK ANALYSIS DATA ===\n\n"
@@ -259,12 +339,15 @@ class AISynthesizer:
             f"{trading_context_section}\n"
             f"--- Sentiment Analysis ---\n{sentiment_section}\n"
             f"{news_headlines_section}\n"
+            f"{deep_data_section}"
             f"--- Composite Score ---\n{composite_score:.2f}/100\n\n"
             "=== INSTRUCTIONS ===\n"
             "Based on all the pre-computed scores and data above, provide your "
             "expert interpretation and actionable investment analysis.\n"
             "Include the 'dashboard' object with bias_check, ma_alignment, chip_health, "
-            "volume_signal, action_checklist (4-6 items), and news_digest.\n\n"
+            "volume_signal, action_checklist (4-6 items), and news_digest.\n"
+            "If shareholder, analyst, or northbound flow data is available, reference it in your analysis.\n"
+            "For US stocks with options data, include covered call insights in position_advice.\n\n"
             f"{RESPONSE_FORMAT_INSTRUCTION}"
             f"{lang_instruction}"
         )

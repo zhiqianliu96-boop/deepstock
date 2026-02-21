@@ -33,6 +33,16 @@ class StockData:
     main_business: Optional[pd.DataFrame] = None  # CN only
     realtime_quote: dict = field(default_factory=dict)
     sector_peers: Optional[pd.DataFrame] = None
+    financial_indicators: Optional[pd.DataFrame] = None  # CN: ROE, margins, etc.
+    top_shareholders: Optional[pd.DataFrame] = None  # CN: Top 10 shareholders
+    industry_peers: Optional[pd.DataFrame] = None  # CN: Industry peer comparison
+    analyst_ratings: Optional[pd.DataFrame] = None  # Analyst ratings/recommendations
+    margin_data: Optional[pd.DataFrame] = None  # CN: Margin trading data
+    block_trades: Optional[pd.DataFrame] = None  # CN: Block/bulk trades
+    northbound_flow: Optional[pd.DataFrame] = None  # CN: HSGT northbound flow
+    news_articles: Optional[pd.DataFrame] = None  # News from East Money
+    institutional_holders: Optional[pd.DataFrame] = None  # US: Institutional holders
+    options_data: dict = field(default_factory=dict)  # US: Options chain data
 
 
 def detect_market(code: str) -> str:
@@ -168,6 +178,87 @@ async def _fetch_cn(code: str, days: int) -> StockData:
             if val is not None:
                 data.realtime_quote[en_key] = val
 
+    # Financial indicators (ROE, margin, etc.)
+    try:
+        fin_ind = ak.stock_financial_analysis_indicator(symbol=code)
+        if fin_ind is not None and not fin_ind.empty:
+            data.financial_indicators = fin_ind.head(20)
+    except Exception as e:
+        print(f"[CN] Financial indicators error for {code}: {e}")
+
+    # Top 10 shareholders
+    try:
+        holders = ak.stock_gdfx_free_holding_detail_em(symbol=code)
+        if holders is not None and not holders.empty:
+            data.top_shareholders = holders.head(20)
+    except Exception as e:
+        print(f"[CN] Top shareholders error for {code}: {e}")
+
+    # Industry peers comparison
+    try:
+        # First get the stock's industry board name from info
+        industry_name = data.info.get("行业", "") or data.info.get("所属行业", "")
+        if industry_name:
+            peers = ak.stock_board_industry_cons_em(symbol=industry_name)
+            if peers is not None and not peers.empty:
+                data.industry_peers = peers.head(20)
+    except Exception as e:
+        print(f"[CN] Industry peers error for {code}: {e}")
+
+    # Analyst ratings
+    try:
+        comments = ak.stock_comment_em(symbol=code)
+        if comments is not None and not comments.empty:
+            data.analyst_ratings = comments.head(30)
+    except Exception as e:
+        print(f"[CN] Analyst ratings error for {code}: {e}")
+
+    # Margin trading data
+    try:
+        if code.startswith(("6", "9")):
+            margin = ak.stock_margin_detail_sse(date=end)
+        else:
+            margin = ak.stock_margin_detail_szse(date=end)
+        if margin is not None and not margin.empty:
+            # Filter to this stock
+            for col in margin.columns:
+                if '代码' in col or 'code' in col.lower():
+                    filtered = margin[margin[col].astype(str).str.contains(code)]
+                    if not filtered.empty:
+                        data.margin_data = filtered
+                    break
+    except Exception as e:
+        print(f"[CN] Margin data error for {code}: {e}")
+
+    # Block trades
+    try:
+        block = ak.stock_dzjy_mrtj(start_date=start, end_date=end)
+        if block is not None and not block.empty:
+            for col in block.columns:
+                if '代码' in col or 'code' in col.lower():
+                    filtered = block[block[col].astype(str).str.contains(code)]
+                    if not filtered.empty:
+                        data.block_trades = filtered.head(20)
+                    break
+    except Exception as e:
+        print(f"[CN] Block trades error for {code}: {e}")
+
+    # Northbound flow (HSGT)
+    try:
+        nb = ak.stock_hsgt_individual_em(symbol=code)
+        if nb is not None and not nb.empty:
+            data.northbound_flow = nb.head(60)
+    except Exception as e:
+        print(f"[CN] Northbound flow error for {code}: {e}")
+
+    # East Money news
+    try:
+        news = ak.stock_news_em(symbol=code)
+        if news is not None and not news.empty:
+            data.news_articles = news.head(20)
+    except Exception as e:
+        print(f"[CN] News articles error for {code}: {e}")
+
     return data
 
 
@@ -236,6 +327,43 @@ async def _fetch_us(code: str, days: int) -> StockData:
             data.cash_flow = cf.T.reset_index()
     except Exception as e:
         print(f"[US] Cash flow error for {code}: {e}")
+
+    # Institutional holders
+    try:
+        inst = ticker.institutional_holders
+        if inst is not None and not inst.empty:
+            data.institutional_holders = inst
+    except Exception as e:
+        print(f"[US] Institutional holders error for {code}: {e}")
+
+    # Analyst recommendations
+    try:
+        recs = ticker.recommendations
+        if recs is not None and not recs.empty:
+            data.analyst_ratings = recs.tail(20)
+    except Exception as e:
+        print(f"[US] Analyst recommendations error for {code}: {e}")
+
+    # Options chain (for covered calls analysis)
+    try:
+        expiry_dates = ticker.options
+        if expiry_dates and len(expiry_dates) > 0:
+            # Get the nearest 2 expiry dates
+            options_info = {"expiry_dates": list(expiry_dates[:4])}
+            for exp in expiry_dates[:2]:
+                try:
+                    chain = ticker.option_chain(exp)
+                    calls_df = chain.calls
+                    puts_df = chain.puts
+                    if calls_df is not None and not calls_df.empty:
+                        options_info[f"calls_{exp}"] = calls_df.to_dict(orient="records")
+                    if puts_df is not None and not puts_df.empty:
+                        options_info[f"puts_{exp}"] = puts_df.to_dict(orient="records")
+                except Exception:
+                    pass
+            data.options_data = options_info
+    except Exception as e:
+        print(f"[US] Options data error for {code}: {e}")
 
     return data
 

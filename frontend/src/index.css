@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+/* KaiTi_GB2312 system font stack for Chinese text */
+@font-face {
+  font-family: 'KaiTi_GB2312';
+  src: local('KaiTi_GB2312'), local('KaiTi'), local('STKaiti'), local('Songti SC');
+  font-display: swap;
+}
+
 @theme {
   --color-bg-primary: #0a0e17;
   --color-bg-secondary: #111827;
@@ -24,7 +31,7 @@
 
 body {
   margin: 0;
-  font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+  font-family: 'Times New Roman', 'KaiTi_GB2312', 'KaiTi', 'STKaiti', serif;
   background-color: var(--color-bg-primary);
   color: var(--color-text-primary);
   min-height: 100vh;
@@ -50,4 +57,10 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-border-light);
+}
+
+/* Monospace utility for code/numbers where needed */
+.font-mono-num {
+  font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Menlo', monospace;
+  font-variant-numeric: tabular-nums;
 }

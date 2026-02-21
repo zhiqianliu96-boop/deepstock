@@ -35,3 +35,8 @@ export async function getHistoryDetail(id: number): Promise<AnalysisResult> {
   const { data } = await api.get(`/history/${id}`);
   return data;
 }
+
+export async function getStockIntraday(code: string, period: number = 5) {
+  const { data } = await api.get(`/stocks/${code}/intraday`, { params: { period } });
+  return data;
+}

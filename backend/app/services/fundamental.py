@@ -8,6 +8,8 @@ a comprehensive fundamental analysis score for a stock.
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
 
+import pandas as pd
+
 from app.analyzers.financial_ratios import FundamentalCalculator, FundamentalMetrics
 from app.services.data_fetcher import StockData
 
@@ -111,6 +113,40 @@ class FundamentalService:
 
         # Convert metrics dataclass to dict, keeping None values for transparency
         metrics_dict = asdict(metrics)
+
+        # --- Enrichment: surface new deep data without changing scores ---
+
+        # DuPont decomposition
+        dupont = self._compute_dupont(stock_data, metrics)
+        if dupont:
+            breakdown["dupont"] = dupont
+            metrics_dict["dupont"] = dupont
+
+        # Shareholder trend
+        shareholders = self._compute_shareholder_trend(stock_data)
+        if shareholders:
+            breakdown["shareholders"] = shareholders
+            metrics_dict["shareholders"] = shareholders
+
+        # Analyst consensus
+        analyst_consensus = self._compute_analyst_consensus(stock_data)
+        if analyst_consensus:
+            breakdown["analyst_consensus"] = analyst_consensus
+            metrics_dict["analyst_consensus"] = analyst_consensus
+
+        # Northbound flow signal (CN only)
+        if market == "CN":
+            nb_signal = self._compute_northbound_signal(stock_data)
+            if nb_signal:
+                breakdown["northbound_flow"] = nb_signal
+                metrics_dict["northbound_flow"] = nb_signal
+
+        # Margin sentiment (CN only)
+        if market == "CN":
+            margin_signal = self._compute_margin_sentiment(stock_data)
+            if margin_signal:
+                breakdown["margin_sentiment"] = margin_signal
+                metrics_dict["margin_sentiment"] = margin_signal
 
         return FundamentalScore(
             total=round(total, 2),
@@ -426,6 +462,269 @@ class FundamentalService:
 
         score = min(score, 25.0)
         return score, details
+
+    # ------------------------------------------------------------------ #
+    #  Enrichment helpers (no scoring changes — data surfacing only)
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _compute_dupont(stock_data: StockData, metrics: FundamentalMetrics) -> dict | None:
+        """DuPont decomposition: ROE = net_margin × asset_turnover × equity_multiplier."""
+        try:
+            # Try from financial_indicators first
+            fin_ind = getattr(stock_data, "financial_indicators", None)
+            if fin_ind is not None and not fin_ind.empty:
+                # AkShare financial_analysis_indicator has columns like 净资产收益率, 销售净利率, etc.
+                latest = fin_ind.iloc[0]
+                cols = fin_ind.columns.tolist()
+
+                def _find_col(keywords):
+                    for c in cols:
+                        if all(k in str(c) for k in keywords):
+                            try:
+                                return float(latest[c])
+                            except (ValueError, TypeError):
+                                pass
+                    return None
+
+                roe_val = _find_col(["净资产收益率"]) or _find_col(["ROE"])
+                net_margin_val = _find_col(["销售净利率"]) or _find_col(["净利率"])
+                turnover_val = _find_col(["总资产周转率"]) or _find_col(["资产周转"])
+                leverage_val = _find_col(["权益乘数"])
+
+                if net_margin_val is not None and turnover_val is not None:
+                    if leverage_val is None and roe_val and net_margin_val and turnover_val:
+                        try:
+                            leverage_val = roe_val / (net_margin_val * turnover_val / 100) if net_margin_val * turnover_val != 0 else None
+                        except ZeroDivisionError:
+                            leverage_val = None
+                    return {
+                        "net_margin": net_margin_val,
+                        "asset_turnover": turnover_val,
+                        "equity_multiplier": leverage_val,
+                        "roe": roe_val,
+                    }
+
+            # Fallback: compute from metrics
+            nm = metrics.net_margin
+            roe = metrics.roe
+            if nm is not None and roe is not None and nm != 0:
+                nm_pct = nm * 100 if abs(nm) < 5 else nm
+                roe_pct = roe * 100 if abs(roe) < 5 else roe
+                # asset_turnover × equity_multiplier = ROE / net_margin
+                combined = roe_pct / nm_pct if nm_pct != 0 else None
+                return {
+                    "net_margin": round(nm_pct, 2),
+                    "asset_turnover_x_leverage": round(combined, 4) if combined else None,
+                    "roe": round(roe_pct, 2),
+                }
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def _compute_shareholder_trend(stock_data: StockData) -> dict | None:
+        """Extract top shareholder info and institutional ownership trend."""
+        try:
+            holders_df = getattr(stock_data, "top_shareholders", None)
+            if holders_df is None or holders_df.empty:
+                # US: try institutional_holders
+                holders_df = getattr(stock_data, "institutional_holders", None)
+                if holders_df is None or holders_df.empty:
+                    return None
+
+            result: dict[str, Any] = {}
+            cols = holders_df.columns.tolist()
+
+            # Try to extract top holders list
+            holders_list = []
+            for _, row in holders_df.head(10).iterrows():
+                holder = {}
+                for c in cols:
+                    val = row[c]
+                    if pd.notna(val):
+                        if hasattr(val, "isoformat"):
+                            holder[str(c)] = val.isoformat()
+                        else:
+                            holder[str(c)] = val
+                holders_list.append(holder)
+
+            result["top_holders"] = holders_list
+            result["holder_count"] = len(holders_list)
+
+            # Try to compute total institutional %
+            pct_col = None
+            for c in cols:
+                if "比例" in str(c) or "%" in str(c) or "pct" in str(c).lower() or "shares" in str(c).lower():
+                    pct_col = c
+                    break
+            if pct_col:
+                try:
+                    total_pct = holders_df.head(10)[pct_col].astype(float).sum()
+                    result["top10_total_pct"] = round(float(total_pct), 2)
+                except (ValueError, TypeError):
+                    pass
+
+            return result
+        except Exception:
+            return None
+
+    @staticmethod
+    def _compute_analyst_consensus(stock_data: StockData) -> dict | None:
+        """Extract analyst ratings consensus."""
+        try:
+            ratings_df = getattr(stock_data, "analyst_ratings", None)
+            if ratings_df is None or ratings_df.empty:
+                return None
+
+            result: dict[str, Any] = {}
+            cols = [str(c) for c in ratings_df.columns.tolist()]
+
+            # US: yfinance recommendations have columns like 'To Grade', 'Action'
+            if any("grade" in c.lower() or "action" in c.lower() for c in cols):
+                grade_col = next((c for c in cols if "grade" in c.lower()), None)
+                if grade_col:
+                    grades = ratings_df[grade_col].value_counts().to_dict()
+                    buy_count = sum(v for k, v in grades.items() if any(w in str(k).lower() for w in ["buy", "overweight", "outperform"]))
+                    hold_count = sum(v for k, v in grades.items() if any(w in str(k).lower() for w in ["hold", "neutral", "equal", "market perform"]))
+                    sell_count = sum(v for k, v in grades.items() if any(w in str(k).lower() for w in ["sell", "underweight", "underperform"]))
+                    result = {"buy": int(buy_count), "hold": int(hold_count), "sell": int(sell_count)}
+
+            # CN: stock_comment_em has different column structure
+            elif any("评级" in c or "目标" in c for c in cols):
+                for c in cols:
+                    if "评级" in c:
+                        ratings = ratings_df[c].value_counts().to_dict()
+                        result["ratings_distribution"] = {str(k): int(v) for k, v in ratings.items()}
+                    if "目标价" in c or "目标" in c:
+                        try:
+                            targets = ratings_df[c].dropna().astype(float)
+                            if not targets.empty:
+                                result["target_price_mean"] = round(float(targets.mean()), 2)
+                                result["target_price_high"] = round(float(targets.max()), 2)
+                                result["target_price_low"] = round(float(targets.min()), 2)
+                        except (ValueError, TypeError):
+                            pass
+
+            # Generic fallback: just report counts
+            if not result:
+                result["record_count"] = len(ratings_df)
+                # Include latest few as raw data
+                latest = []
+                for _, row in ratings_df.head(5).iterrows():
+                    entry = {}
+                    for c in cols:
+                        val = row[c]
+                        if pd.notna(val):
+                            if hasattr(val, "isoformat"):
+                                entry[c] = val.isoformat()
+                            else:
+                                entry[c] = val
+                    latest.append(entry)
+                result["latest"] = latest
+
+            return result
+        except Exception:
+            return None
+
+    @staticmethod
+    def _compute_northbound_signal(stock_data: StockData) -> dict | None:
+        """Compute northbound (HSGT) flow trend for CN stocks."""
+        try:
+            nb_df = getattr(stock_data, "northbound_flow", None)
+            if nb_df is None or nb_df.empty:
+                return None
+
+            result: dict[str, Any] = {}
+            cols = [str(c) for c in nb_df.columns.tolist()]
+
+            # Find net buy column
+            net_col = None
+            for c in cols:
+                if "净买" in c or "净流入" in c or "net" in c.lower():
+                    net_col = c
+                    break
+
+            if net_col:
+                try:
+                    recent = nb_df[net_col].head(20).astype(float)
+                    result["recent_net_buy_total"] = round(float(recent.sum()), 2)
+                    result["recent_5d_net"] = round(float(recent.head(5).sum()), 2)
+                    result["recent_10d_net"] = round(float(recent.head(10).sum()), 2)
+                    result["trend"] = "accumulating" if recent.head(5).sum() > 0 else "distributing"
+                    # Daily values for charting
+                    result["daily_net"] = [round(float(v), 2) for v in recent.tolist()]
+                except (ValueError, TypeError):
+                    pass
+
+            # Find date column for labels
+            date_col = None
+            for c in cols:
+                if "日期" in c or "date" in c.lower():
+                    date_col = c
+                    break
+            if date_col:
+                try:
+                    result["dates"] = [str(d) for d in nb_df[date_col].head(20).tolist()]
+                except Exception:
+                    pass
+
+            return result if result else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _compute_margin_sentiment(stock_data: StockData) -> dict | None:
+        """Compute margin trading sentiment for CN stocks."""
+        try:
+            margin_df = getattr(stock_data, "margin_data", None)
+            if margin_df is None or margin_df.empty:
+                return None
+
+            result: dict[str, Any] = {}
+            cols = [str(c) for c in margin_df.columns.tolist()]
+
+            # Find margin balance column
+            balance_col = None
+            for c in cols:
+                if "融资余额" in c or "margin" in c.lower():
+                    balance_col = c
+                    break
+
+            if balance_col:
+                try:
+                    balance = float(margin_df[balance_col].iloc[0])
+                    result["margin_balance"] = balance
+                except (ValueError, TypeError, IndexError):
+                    pass
+
+            # Find buy amount
+            buy_col = None
+            for c in cols:
+                if "融资买入" in c:
+                    buy_col = c
+                    break
+            if buy_col:
+                try:
+                    result["margin_buy"] = float(margin_df[buy_col].iloc[0])
+                except (ValueError, TypeError, IndexError):
+                    pass
+
+            # Short selling balance
+            short_col = None
+            for c in cols:
+                if "融券余额" in c:
+                    short_col = c
+                    break
+            if short_col:
+                try:
+                    result["short_balance"] = float(margin_df[short_col].iloc[0])
+                except (ValueError, TypeError, IndexError):
+                    pass
+
+            return result if result else None
+        except Exception:
+            return None
 
     # ------------------------------------------------------------------ #
     #  Company profile builder
