@@ -55,14 +55,16 @@ class FundamentalService:
         FundamentalScore
         """
         info = getattr(stock_data, "info", {}) or {}
+        realtime = getattr(stock_data, "realtime_quote", {}) or {}
+        quote_info = {**info, **realtime}
         market = getattr(stock_data, "market", "US") or "US"
 
         # Compute fundamental metrics
         metrics = self._calculator.compute(
             income_df=getattr(stock_data, "income_statement", None),
             balance_df=getattr(stock_data, "balance_sheet", None),
-            cashflow_df=getattr(stock_data, "cashflow", None),
-            quote_info=info,
+            cashflow_df=getattr(stock_data, "cash_flow", None),
+            quote_info=quote_info,
             market=market,
         )
 

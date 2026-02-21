@@ -70,10 +70,14 @@ class TechnicalService:
                 - fund_flow_df : pd.DataFrame | None
                 - chip_df : pd.DataFrame | None
         """
-        daily_df: pd.DataFrame = getattr(stock_data, "daily_df", pd.DataFrame())
-        current_price: float = getattr(stock_data, "current_price", 0.0)
-        fund_flow_df = getattr(stock_data, "fund_flow_df", None)
-        chip_df = getattr(stock_data, "chip_df", None)
+        daily_df: pd.DataFrame = getattr(stock_data, "daily", None) or pd.DataFrame()
+        fund_flow_df = getattr(stock_data, "fund_flow", None)
+        chip_df = getattr(stock_data, "chip_data", None)
+        # Extract current price from realtime_quote or last close
+        quote = getattr(stock_data, "realtime_quote", {}) or {}
+        current_price: float = float(quote.get("price", 0) or 0)
+        if current_price == 0 and not daily_df.empty and "close" in daily_df.columns:
+            current_price = float(daily_df["close"].iloc[-1])
 
         # --- Run analyzers ------------------------------------------------ #
         indicator_result = self._ti.compute(daily_df)
