@@ -70,12 +70,14 @@ class TechnicalService:
                 - fund_flow_df : pd.DataFrame | None
                 - chip_df : pd.DataFrame | None
         """
-        daily_df: pd.DataFrame = getattr(stock_data, "daily", None) or pd.DataFrame()
+        daily_df: pd.DataFrame = getattr(stock_data, "daily", None)
+        if daily_df is None or (hasattr(daily_df, "empty") and daily_df.empty):
+            daily_df = pd.DataFrame()
         fund_flow_df = getattr(stock_data, "fund_flow", None)
         chip_df = getattr(stock_data, "chip_data", None)
         # Extract current price from realtime_quote or last close
-        quote = getattr(stock_data, "realtime_quote", {}) or {}
-        current_price: float = float(quote.get("price", 0) or 0)
+        quote = getattr(stock_data, "realtime_quote", None) or {}
+        current_price: float = float(quote.get("price") or 0)
         if current_price == 0 and not daily_df.empty and "close" in daily_df.columns:
             current_price = float(daily_df["close"].iloc[-1])
 

@@ -5,6 +5,16 @@ from typing import Optional
 from datetime import datetime, timedelta
 
 
+def _safe_num(val):
+    """Convert a value to float, returning None on failure."""
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
+
+
 @dataclass
 class StockData:
     code: str
@@ -63,8 +73,14 @@ async def _fetch_cn(code: str, days: int) -> StockData:
             symbol=code, period="daily", start_date=start, end_date=end, adjust="qfq"
         )
         if df is not None and not df.empty:
-            df.columns = ["date", "open", "close", "high", "low", "volume", "turnover",
-                          "amplitude", "pct_change", "change", "turnover_rate"]
+            col_map = {
+                "日期": "date", "开盘": "open", "收盘": "close", "最高": "high",
+                "最低": "low", "成交量": "volume", "成交额": "turnover",
+                "振幅": "amplitude", "涨跌幅": "pct_change", "涨跌额": "change",
+                "换手率": "turnover_rate",
+            }
+            df = df.rename(columns=col_map)
+            df = df.drop(columns=[c for c in df.columns if c not in col_map.values()], errors="ignore")
             df["date"] = pd.to_datetime(df["date"])
             data.daily = df
     except Exception as e:
@@ -82,29 +98,27 @@ async def _fetch_cn(code: str, days: int) -> StockData:
     except Exception as e:
         print(f"[CN] Info error for {code}: {e}")
 
-    # Income statement
+    # Financial abstract (THS) — more reliable than individual statements
     try:
-        income = ak.stock_profit_sheet_by_report_em(symbol=code)
-        if income is not None and not income.empty:
-            data.income_statement = income
+        fin_df = ak.stock_financial_abstract_ths(symbol=code)
+        if fin_df is not None and not fin_df.empty:
+            data.income_statement = fin_df  # Contains all key metrics
     except Exception as e:
-        print(f"[CN] Income statement error for {code}: {e}")
+        print(f"[CN] Financial abstract error for {code}: {e}")
 
-    # Balance sheet
-    try:
-        balance = ak.stock_balance_sheet_by_report_em(symbol=code)
-        if balance is not None and not balance.empty:
-            data.balance_sheet = balance
-    except Exception as e:
-        print(f"[CN] Balance sheet error for {code}: {e}")
-
-    # Cash flow
-    try:
-        cashflow = ak.stock_cash_flow_sheet_by_report_em(symbol=code)
-        if cashflow is not None and not cashflow.empty:
-            data.cash_flow = cashflow
-    except Exception as e:
-        print(f"[CN] Cash flow error for {code}: {e}")
+    # Fallback: try individual statements
+    if data.income_statement is None:
+        for stmt_name, fetcher, attr in [
+            ("Income", "stock_profit_sheet_by_report_em", "income_statement"),
+            ("Balance", "stock_balance_sheet_by_report_em", "balance_sheet"),
+            ("CashFlow", "stock_cash_flow_sheet_by_report_em", "cash_flow"),
+        ]:
+            try:
+                df = getattr(ak, fetcher)(symbol=code)
+                if df is not None and not df.empty:
+                    setattr(data, attr, df)
+            except Exception as e:
+                print(f"[CN] {stmt_name} error for {code}: {e}")
 
     # Fund flow
     try:
@@ -117,50 +131,38 @@ async def _fetch_cn(code: str, days: int) -> StockData:
 
     # Chip distribution
     try:
-        chip = ak.stock_cyq_em(symbol=code, adjust_date=datetime.now().strftime("%Y%m%d"))
+        chip = ak.stock_cyq_em(symbol=code)
         if chip is not None and not chip.empty:
             data.chip_data = chip
     except Exception as e:
         print(f"[CN] Chip data error for {code}: {e}")
 
-    # Main business
+    # Realtime quote — use bid_ask (fast single stock) + info we already have
     try:
-        biz = ak.stock_zyjs_ths(symbol=code)
-        if biz is not None and not biz.empty:
-            data.main_business = biz
-    except Exception as e:
-        print(f"[CN] Main business error for {code}: {e}")
+        bid_df = ak.stock_bid_ask_em(symbol=code)
+        if bid_df is not None and not bid_df.empty:
+            bid_dict = dict(zip(bid_df.iloc[:, 0], bid_df.iloc[:, 1]))
+            data.realtime_quote = {
+                "price": _safe_num(bid_dict.get("最新")),
+                "volume": _safe_num(bid_dict.get("总手")),
+                "turnover": _safe_num(bid_dict.get("金额")),
+                "turnover_rate": _safe_num(bid_dict.get("换手")),
+                "high": _safe_num(bid_dict.get("最高")),
+                "low": _safe_num(bid_dict.get("最低")),
+            }
+    except Exception:
+        pass
 
-    # Realtime quote
-    try:
-        spot = ak.stock_zh_a_spot_em()
-        if spot is not None and not spot.empty:
-            row = spot[spot["代码"] == code]
-            if not row.empty:
-                row = row.iloc[0]
-                data.realtime_quote = {
-                    "price": row.get("最新价"),
-                    "pe": row.get("市盈率-动态"),
-                    "pb": row.get("市净率"),
-                    "market_cap": row.get("总市值"),
-                    "float_cap": row.get("流通市值"),
-                    "volume": row.get("成交量"),
-                    "turnover": row.get("成交额"),
-                    "turnover_rate": row.get("换手率"),
-                }
-                if not data.name:
-                    data.name = str(row.get("名称", ""))
-    except Exception as e:
-        print(f"[CN] Realtime quote error for {code}: {e}")
-
-    # Sector peers
-    try:
-        if data.sector:
-            peers = ak.stock_board_industry_cons_em(symbol=data.sector)
-            if peers is not None and not peers.empty:
-                data.sector_peers = peers
-    except Exception as e:
-        print(f"[CN] Sector peers error for {code}: {e}")
+    # Merge PE/PB/market_cap from info (already fetched)
+    if data.realtime_quote.get("price") is None and data.daily is not None and not data.daily.empty:
+        data.realtime_quote["price"] = float(data.daily["close"].iloc[-1])
+    # info dict may have these from stock_individual_info_em
+    for cn_key, en_key in [("市盈率-动态", "pe"), ("市净率", "pb"), ("总市值", "market_cap"),
+                            ("流通市值", "float_cap")]:
+        if en_key not in data.realtime_quote or data.realtime_quote[en_key] is None:
+            val = _safe_num(data.info.get(cn_key))
+            if val is not None:
+                data.realtime_quote[en_key] = val
 
     return data
 
@@ -249,8 +251,14 @@ async def _fetch_hk(code: str, days: int) -> StockData:
             symbol=hk_code, period="daily", start_date=start, end_date=end, adjust="qfq"
         )
         if df is not None and not df.empty:
-            df.columns = ["date", "open", "close", "high", "low", "volume", "turnover",
-                          "amplitude", "pct_change", "change", "turnover_rate"]
+            col_map = {
+                "日期": "date", "开盘": "open", "收盘": "close", "最高": "high",
+                "最低": "low", "成交量": "volume", "成交额": "turnover",
+                "振幅": "amplitude", "涨跌幅": "pct_change", "涨跌额": "change",
+                "换手率": "turnover_rate",
+            }
+            df = df.rename(columns=col_map)
+            df = df.drop(columns=[c for c in df.columns if c not in col_map.values()], errors="ignore")
             df["date"] = pd.to_datetime(df["date"])
             data.daily = df
     except Exception as e:

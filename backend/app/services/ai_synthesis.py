@@ -5,6 +5,7 @@ Takes pre-computed pillar scores (fundamental, technical, sentiment) and raw
 stock data, builds a structured prompt, and asks an AI provider to INTERPRET
 the results — not recalculate them. Returns a structured analysis dict.
 """
+from __future__ import annotations
 
 import json
 import logging

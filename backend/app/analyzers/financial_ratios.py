@@ -297,6 +297,11 @@ class FundamentalCalculator:
         cashflow_df: Optional[pd.DataFrame],
         qi: dict,
     ) -> FundamentalMetrics:
+        # Check if income_df is actually THS financial abstract format
+        if income_df is not None and not income_df.empty and "报告期" in income_df.columns:
+            if "净资产收益率" in income_df.columns or "销售净利率" in income_df.columns:
+                return self._compute_cn_ths(income_df, qi)
+
         m = FundamentalMetrics()
 
         # Extract latest values
@@ -389,6 +394,112 @@ class FundamentalCalculator:
             capex_val = abs(capex) if capex is not None else 0
             fcf = operating_cf - capex_val
             m.fcf_yield = fcf / m.market_cap
+
+        return m
+
+    # ------------------------------------------------------------------ #
+    #  CN THS financial abstract format
+    # ------------------------------------------------------------------ #
+
+    def _compute_cn_ths(self, df: pd.DataFrame, qi: dict) -> FundamentalMetrics:
+        """Parse AkShare stock_financial_abstract_ths format (already has computed ratios)."""
+        m = FundamentalMetrics()
+
+        # Sort by report date desc to get latest first
+        df = df.copy()
+        df["报告期"] = pd.to_datetime(df["报告期"], errors="coerce")
+        df = df.sort_values("报告期", ascending=False).reset_index(drop=True)
+
+        def parse_pct(val) -> Optional[float]:
+            """Parse '52.08%' or '6.25%' to float (e.g. 52.08)."""
+            if val is None or val is False or (isinstance(val, float) and pd.isna(val)):
+                return None
+            s = str(val).replace("%", "").strip()
+            try:
+                return float(s)
+            except (ValueError, TypeError):
+                return None
+
+        def parse_amount(val) -> Optional[float]:
+            """Parse '646.27亿' or '1309.04亿' to float."""
+            if val is None or val is False or (isinstance(val, float) and pd.isna(val)):
+                return None
+            s = str(val).strip()
+            multiplier = 1.0
+            if "万亿" in s:
+                multiplier = 1e12
+                s = s.replace("万亿", "")
+            elif "亿" in s:
+                multiplier = 1e8
+                s = s.replace("亿", "")
+            elif "万" in s:
+                multiplier = 1e4
+                s = s.replace("万", "")
+            try:
+                return float(s) * multiplier
+            except (ValueError, TypeError):
+                return None
+
+        latest = df.iloc[0] if len(df) > 0 else {}
+        prev = df.iloc[1] if len(df) > 1 else {}
+
+        # Valuation from quote_info
+        m.pe = _safe_float(qi.get("pe")) or _safe_float(qi.get("pe_ttm"))
+        m.pb = _safe_float(qi.get("pb"))
+        m.market_cap = _safe_float(qi.get("market_cap")) or _safe_float(qi.get("total_mv")) or _safe_float(qi.get("总市值"))
+        m.dividend_yield = _safe_float(qi.get("dividend_yield"))
+
+        # EPS, book value
+        m.eps = _safe_float(latest.get("基本每股收益"))
+        m.book_value_per_share = _safe_float(latest.get("每股净资产"))
+
+        # Compute PE/PB from price if not in quote_info
+        price = _safe_float(qi.get("price")) or _safe_float(qi.get("最新"))
+        if m.pe is None and price and m.eps and m.eps > 0:
+            m.pe = price / m.eps
+        if m.pb is None and price and m.book_value_per_share and m.book_value_per_share > 0:
+            m.pb = price / m.book_value_per_share
+
+        # Profitability (already in %)
+        m.roe = parse_pct(latest.get("净资产收益率"))
+        m.net_margin = parse_pct(latest.get("销售净利率"))
+        m.gross_margin = parse_pct(latest.get("销售毛利率"))
+
+        # Growth rates
+        m.revenue_growth_yoy = parse_pct(latest.get("营业总收入同比增长率"))
+        m.profit_growth_yoy = parse_pct(latest.get("净利润同比增长率"))
+
+        # Financial health
+        asset_liability = parse_pct(latest.get("资产负债率"))
+        if asset_liability is not None:
+            # D/E ≈ asset_liability / (100 - asset_liability)
+            if asset_liability < 100:
+                m.debt_to_equity = asset_liability / (100 - asset_liability)
+        property_ratio = _safe_float(latest.get("产权比率"))
+        if m.debt_to_equity is None and property_ratio is not None:
+            m.debt_to_equity = property_ratio
+
+        m.current_ratio = _safe_float(latest.get("流动比率"))
+
+        # Revenue for PS calculation
+        revenue = parse_amount(latest.get("营业总收入"))
+        if m.market_cap and revenue and revenue > 0:
+            m.ps = m.market_cap / revenue
+
+        # PEG
+        if m.pe is not None and m.profit_growth_yoy is not None and m.profit_growth_yoy > 0:
+            m.peg = m.pe / m.profit_growth_yoy
+
+        # FCF yield from operating cashflow per share
+        ocf_per_share = _safe_float(latest.get("每股经营现金流"))
+        price = _safe_float(qi.get("price"))
+        if ocf_per_share is not None and price and price > 0:
+            m.fcf_yield = (ocf_per_share / price) * 100  # as percentage
+
+        # ROA estimate: net_margin * revenue / total_assets
+        # We have asset_liability, so total_assets ~ equity / (1 - asset_liability/100)
+        if m.roe is not None and asset_liability is not None and asset_liability < 100:
+            m.roa = m.roe * (1 - asset_liability / 100)
 
         return m
 

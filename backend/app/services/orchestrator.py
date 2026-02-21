@@ -1,6 +1,7 @@
 """
 Main analysis orchestrator — runs 3 pillars in parallel, composites, AI synthesis, persist.
 """
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -43,15 +44,27 @@ def _safe_asdict(obj):
 
 
 def _sanitize_for_json(obj):
-    """Recursively replace NaN/Inf with None for JSON compatibility."""
+    """Recursively replace NaN/Inf/numpy types with JSON-compatible equivalents."""
+    import numpy as np
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        v = float(obj)
+        return None if math.isnan(v) or math.isinf(v) else v
+    if isinstance(obj, np.ndarray):
+        return _sanitize_for_json(obj.tolist())
+    if isinstance(obj, np.bool_):
+        return bool(obj)
     if isinstance(obj, float):
         if math.isnan(obj) or math.isinf(obj):
             return None
         return obj
     elif isinstance(obj, dict):
-        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+        return {str(k): _sanitize_for_json(v) for k, v in obj.items()}
     elif isinstance(obj, (list, tuple)):
         return [_sanitize_for_json(item) for item in obj]
+    elif hasattr(obj, 'isoformat'):
+        return obj.isoformat()
     return obj
 
 

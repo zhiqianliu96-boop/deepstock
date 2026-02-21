@@ -4,6 +4,7 @@ Abstract AI provider layer supporting Gemini, Anthropic (Claude), and OpenAI.
 Provides a unified interface for generating text completions across
 multiple AI providers, with a factory function for provider selection.
 """
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import logging
