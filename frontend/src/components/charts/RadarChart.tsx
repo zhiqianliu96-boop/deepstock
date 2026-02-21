@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
+import { useLocale } from '../../i18n/LocaleContext';
 
 interface RadarChartProps {
   fundamental: number;
@@ -18,6 +19,8 @@ const RadarChart: React.FC<RadarChartProps> = ({
   technicalDetail,
   sentimentDetail,
 }) => {
+  const { t } = useLocale();
+
   const option = useMemo(() => {
     // Extract sub-dimension scores and normalize to 0-100
     const normalize = (value: number | undefined | null, max: number): number => {
@@ -30,7 +33,6 @@ const RadarChart: React.FC<RadarChartProps> = ({
     if (fundamentalDetail?.valuation_score != null) {
       valuationScore = normalize(fundamentalDetail.valuation_score, 25);
     } else {
-      // Distribute fundamental evenly across its 3 sub-dimensions (0-100 scale already for total)
       valuationScore = normalize(fundamental, 100) ;
     }
 
@@ -72,6 +74,15 @@ const RadarChart: React.FC<RadarChartProps> = ({
       100
     );
 
+    const indicatorNames = [
+      t('radar.valuation'),
+      t('radar.profitability'),
+      t('radar.growth'),
+      t('radar.trend'),
+      t('radar.momentum'),
+      t('radar.sentiment'),
+    ];
+
     const dataValues = [
       +valuationScore.toFixed(1),
       +profitabilityScore.toFixed(1),
@@ -90,10 +101,9 @@ const RadarChart: React.FC<RadarChartProps> = ({
         textStyle: { color: '#e2e8f0', fontSize: 12 },
         formatter: (params: any) => {
           if (!params || !params.data || !params.data.value) return '';
-          const indicators = ['Valuation', 'Profitability', 'Growth', 'Trend', 'Momentum', 'Sentiment'];
           let html = `<div style="font-weight:600;margin-bottom:4px;">${params.name}</div>`;
           params.data.value.forEach((val: number, idx: number) => {
-            html += `<div>${indicators[idx]}: <span style="font-weight:600;">${val}</span>/100</div>`;
+            html += `<div>${indicatorNames[idx]}: <span style="font-weight:600;">${val}</span>/100</div>`;
           });
           return html;
         },
@@ -102,14 +112,7 @@ const RadarChart: React.FC<RadarChartProps> = ({
         shape: 'polygon',
         center: ['50%', '55%'],
         radius: '65%',
-        indicator: [
-          { name: 'Valuation', max: 100 },
-          { name: 'Profitability', max: 100 },
-          { name: 'Growth', max: 100 },
-          { name: 'Trend', max: 100 },
-          { name: 'Momentum', max: 100 },
-          { name: 'Sentiment', max: 100 },
-        ],
+        indicator: indicatorNames.map((name) => ({ name, max: 100 })),
         axisName: {
           color: '#94a3b8',
           fontSize: 11,
@@ -131,11 +134,11 @@ const RadarChart: React.FC<RadarChartProps> = ({
       },
       series: [
         {
-          name: 'Score Analysis',
+          name: t('radar.series_name'),
           type: 'radar',
           data: [
             {
-              name: 'Score Analysis',
+              name: t('radar.series_name'),
               value: dataValues,
               symbol: 'circle',
               symbolSize: 5,
@@ -156,7 +159,7 @@ const RadarChart: React.FC<RadarChartProps> = ({
         },
       ],
     };
-  }, [fundamental, technical, sentiment, fundamentalDetail, technicalDetail, sentimentDetail]);
+  }, [fundamental, technical, sentiment, fundamentalDetail, technicalDetail, sentimentDetail, t]);
 
   // Guard: all scores zero or missing
   const hasAnyData = fundamental > 0 || technical > 0 || sentiment > 0;
@@ -164,7 +167,7 @@ const RadarChart: React.FC<RadarChartProps> = ({
   if (!hasAnyData) {
     return (
       <div className="w-full h-[350px] flex items-center justify-center text-slate-400">
-        <p>No score data available for radar chart</p>
+        <p>{t('chart.no_radar')}</p>
       </div>
     );
   }

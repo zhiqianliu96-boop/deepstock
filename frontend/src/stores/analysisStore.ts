@@ -31,7 +31,8 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => ({
   analyze: async (code: string) => {
     set({ loading: true, error: null, result: null });
     try {
-      const result = await runAnalysis({ code, ai_provider: get().aiProvider });
+      const lang = localStorage.getItem('deepstock_locale') || 'en';
+      const result = await runAnalysis({ code, ai_provider: get().aiProvider, lang });
       set({ result, loading: false });
     } catch (err: any) {
       set({

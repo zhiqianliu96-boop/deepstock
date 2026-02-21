@@ -1,5 +1,6 @@
 """
-Abstract AI provider layer supporting Gemini, Anthropic (Claude), and OpenAI.
+Abstract AI provider layer supporting Gemini, Anthropic (Claude), OpenAI,
+DeepSeek, and Qwen (DashScope).
 
 Provides a unified interface for generating text completions across
 multiple AI providers, with a factory function for provider selection.
@@ -93,11 +94,53 @@ class OpenAIProvider(AIProvider):
         return response.choices[0].message.content
 
 
+class DeepSeekProvider(AIProvider):
+    """DeepSeek AI provider (OpenAI-compatible API)."""
+
+    def __init__(self, api_key: str, base_url: str = "https://api.deepseek.com"):
+        import openai
+
+        self.client = openai.OpenAI(api_key=api_key, base_url=base_url)
+        logger.info("DeepSeekProvider initialized")
+
+    async def generate(self, prompt: str, system_prompt: str = "") -> str:
+        response = self.client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.3,
+        )
+        return response.choices[0].message.content
+
+
+class QwenProvider(AIProvider):
+    """Qwen AI provider via DashScope (OpenAI-compatible API)."""
+
+    def __init__(self, api_key: str, base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"):
+        import openai
+
+        self.client = openai.OpenAI(api_key=api_key, base_url=base_url)
+        logger.info("QwenProvider initialized")
+
+    async def generate(self, prompt: str, system_prompt: str = "") -> str:
+        response = self.client.chat.completions.create(
+            model="qwen-plus",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.3,
+        )
+        return response.choices[0].message.content
+
+
 def get_ai_provider(provider_name: str | None = None) -> AIProvider:
     """Factory function to create the appropriate AI provider.
 
     Args:
-        provider_name: One of "gemini", "anthropic", or "openai".
+        provider_name: One of "gemini", "anthropic", "openai", "deepseek", or "qwen".
             If None, uses the default from application settings.
 
     Returns:
@@ -138,8 +181,24 @@ def get_ai_provider(provider_name: str | None = None) -> AIProvider:
             )
         return OpenAIProvider(api_key=api_key)
 
+    elif provider_name == "deepseek":
+        api_key = settings.deepseek_api_key
+        if not api_key:
+            raise ValueError(
+                "DeepSeek API key not configured. Set DEEPSEEK_API_KEY in environment."
+            )
+        return DeepSeekProvider(api_key=api_key, base_url=settings.deepseek_base_url)
+
+    elif provider_name == "qwen":
+        api_key = settings.qwen_api_key
+        if not api_key:
+            raise ValueError(
+                "Qwen API key not configured. Set QWEN_API_KEY in environment."
+            )
+        return QwenProvider(api_key=api_key, base_url=settings.qwen_base_url)
+
     else:
         raise ValueError(
             f"Unknown AI provider: '{provider_name}'. "
-            f"Supported providers: gemini, anthropic, openai"
+            f"Supported providers: gemini, anthropic, openai, deepseek, qwen"
         )

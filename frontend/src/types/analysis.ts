@@ -1,6 +1,7 @@
 export interface AnalysisRequest {
   code: string;
   ai_provider?: string;
+  lang?: string;
 }
 
 export interface FundamentalDetail {
@@ -78,6 +79,15 @@ export interface SentimentDetail {
   category_summary: Record<string, { count: number; avg_score: number; impact: string }>;
 }
 
+export interface AIDashboard {
+  bias_check?: 'safe' | 'caution' | 'danger';
+  ma_alignment?: string;
+  chip_health?: string;
+  volume_signal?: string;
+  action_checklist?: string[];
+  news_digest?: string;
+}
+
 export interface AISynthesis {
   verdict: string;
   confidence: number;
@@ -94,6 +104,7 @@ export interface AISynthesis {
   };
   position_advice: string;
   time_horizon: string;
+  dashboard?: AIDashboard;
 }
 
 export interface AnalysisResult {

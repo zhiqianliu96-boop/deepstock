@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAnalysisStore } from '../stores/analysisStore';
+import { useLocale } from '../i18n/LocaleContext';
 
 const verdictColors: Record<string, string> = {
   strong_buy: 'text-accent-green',
@@ -13,6 +14,7 @@ const verdictColors: Record<string, string> = {
 export default function HistoryPage() {
   const { history, historyLoading, fetchHistory, loadHistoryDetail } = useAnalysisStore();
   const navigate = useNavigate();
+  const { t } = useLocale();
 
   useEffect(() => {
     fetchHistory();
@@ -25,7 +27,7 @@ export default function HistoryPage() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold text-text-primary mb-6">Analysis History</h1>
+      <h1 className="text-2xl font-bold text-text-primary mb-6">{t('history.title')}</h1>
 
       {historyLoading ? (
         <div className="text-center py-12">
@@ -33,7 +35,7 @@ export default function HistoryPage() {
         </div>
       ) : history.length === 0 ? (
         <div className="text-center py-12 text-text-muted">
-          No analysis history yet. Run your first analysis from the dashboard.
+          {t('history.empty')}
         </div>
       ) : (
         <div className="space-y-3">
@@ -69,7 +71,7 @@ export default function HistoryPage() {
                   <div className="text-text-primary text-sm font-medium">{record.sentiment_score?.toFixed(0)}</div>
                 </div>
                 <div className="text-center border-l border-border pl-4">
-                  <div className="text-text-muted text-xs">Score</div>
+                  <div className="text-text-muted text-xs">{t('history.score')}</div>
                   <div className="text-accent-cyan text-sm font-bold">{record.composite_score?.toFixed(0)}</div>
                 </div>
                 <span className={`text-sm font-medium uppercase ${verdictColors[record.verdict] || 'text-text-secondary'}`}>

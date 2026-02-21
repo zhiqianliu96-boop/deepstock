@@ -80,7 +80,7 @@ def _extract_total(result, default: float = DEFAULT_SCORE) -> float:
     return float(score)
 
 
-async def run_full_analysis(code: str, ai_provider: str | None, db) -> dict:
+async def run_full_analysis(code: str, ai_provider: str | None, db, *, lang: str | None = None) -> dict:
     from app.services.data_fetcher import fetch_stock_data
     from app.services.fundamental import FundamentalService
     from app.services.technical import TechnicalService
@@ -139,6 +139,7 @@ async def run_full_analysis(code: str, ai_provider: str | None, db) -> dict:
             stock_data=stock_data,
             composite_score=composite,
             ai_provider_name=ai_provider,
+            lang=lang,
         )
     except Exception as e:
         logger.error("AI synthesis failed for %s: %s", code, e, exc_info=True)

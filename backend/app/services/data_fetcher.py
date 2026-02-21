@@ -67,21 +67,12 @@ async def _fetch_cn(code: str, days: int) -> StockData:
     end = datetime.now().strftime("%Y%m%d")
     start = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
 
-    # Daily OHLCV
+    # Daily OHLCV — delegate to provider manager with failover
     try:
-        df = ak.stock_zh_a_hist(
-            symbol=code, period="daily", start_date=start, end_date=end, adjust="qfq"
-        )
+        from app.services.data_providers import CNDataProviderManager
+        manager = CNDataProviderManager()
+        df = await manager.fetch_daily(code, start, end)
         if df is not None and not df.empty:
-            col_map = {
-                "日期": "date", "开盘": "open", "收盘": "close", "最高": "high",
-                "最低": "low", "成交量": "volume", "成交额": "turnover",
-                "振幅": "amplitude", "涨跌幅": "pct_change", "涨跌额": "change",
-                "换手率": "turnover_rate",
-            }
-            df = df.rename(columns=col_map)
-            df = df.drop(columns=[c for c in df.columns if c not in col_map.values()], errors="ignore")
-            df["date"] = pd.to_datetime(df["date"])
             data.daily = df
     except Exception as e:
         print(f"[CN] Daily data error for {code}: {e}")
@@ -152,6 +143,19 @@ async def _fetch_cn(code: str, days: int) -> StockData:
             }
     except Exception:
         pass
+
+    # Tencent Finance realtime fallback if AkShare realtime failed
+    if not data.realtime_quote.get("price"):
+        try:
+            from app.services.data_providers.tencent_realtime import fetch_tencent_realtime
+            tencent_quote = await fetch_tencent_realtime(code)
+            if tencent_quote:
+                # Merge Tencent data (don't overwrite existing non-None values)
+                for k, v in tencent_quote.items():
+                    if k not in data.realtime_quote or data.realtime_quote[k] is None:
+                        data.realtime_quote[k] = v
+        except Exception:
+            pass
 
     # Merge PE/PB/market_cap from info (already fetched)
     if data.realtime_quote.get("price") is None and data.daily is not None and not data.daily.empty:

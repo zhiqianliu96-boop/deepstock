@@ -1,15 +1,14 @@
 """
 Sentiment analysis service.
 
-Fetches news via Tavily, scores articles with the keyword-based
-SentimentScorer, and produces a composite SentimentScore.
+Fetches news via NewsProviderManager (Tavily / Brave / DuckDuckGo with failover),
+scores articles with keyword-based SentimentScorer (or optional AI scoring),
+and produces a composite SentimentScore.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -21,30 +20,6 @@ from app.analyzers.sentiment_scorer import (
 )
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Attempt to import optional dependencies
-# ---------------------------------------------------------------------------
-
-try:
-    from app.config import settings as _settings
-
-    _TAVILY_API_KEY: str = getattr(_settings, "TAVILY_API_KEY", "") or ""
-except Exception:
-    _TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
-
-try:
-    from tavily import TavilyClient  # type: ignore[import-untyped]
-
-    _TAVILY_AVAILABLE = True
-except ImportError:
-    _TAVILY_AVAILABLE = False
-    TavilyClient = None  # type: ignore[assignment,misc]
-
-try:
-    from app.services.data_fetcher import StockData  # type: ignore[import-untyped]
-except ImportError:
-    StockData = None  # type: ignore[assignment,misc]
 
 
 # ---------------------------------------------------------------------------
@@ -67,19 +42,15 @@ class SentimentScore:
 
 
 # ---------------------------------------------------------------------------
-# NewsFetcher
+# NewsFetcher — delegates to NewsProviderManager
 # ---------------------------------------------------------------------------
 
 class NewsFetcher:
-    """Fetch news articles from Tavily search API."""
+    """Fetch news articles using multi-source NewsProviderManager."""
 
-    def __init__(self, api_key: str | None = None) -> None:
-        self._api_key = api_key or _TAVILY_API_KEY
-        self._client: Any | None = None
-        if self._api_key and _TAVILY_AVAILABLE:
-            self._client = TavilyClient(api_key=self._api_key)
-
-    # --------------------------------------------------------------------- #
+    def __init__(self) -> None:
+        from app.services.news_providers import NewsProviderManager
+        self._manager = NewsProviderManager()
 
     async def fetch_news(
         self,
@@ -89,94 +60,121 @@ class NewsFetcher:
     ) -> list[dict]:
         """Fetch recent news articles for the given stock.
 
-        Parameters
-        ----------
-        code : str
-            Stock ticker / code (e.g. "AAPL", "600519").
-        name : str
-            Company name or short name.
-        market : str
-            One of "CN", "US", "HK" (case-insensitive).
-
-        Returns
-        -------
-        list[dict]
-            Each dict: {title, content, url, published_date, source}.
+        Returns list[dict] with keys: title, content, url, published_date, source.
         """
-        if not self._api_key:
-            logger.warning(
-                "TAVILY_API_KEY is not set — skipping news fetch. "
-                "Sentiment analysis will return a neutral score."
-            )
-            return []
-
-        if not _TAVILY_AVAILABLE:
-            logger.warning(
-                "tavily package is not installed — skipping news fetch. "
-                "Install with: pip install tavily-python"
-            )
-            return []
-
         queries = self._build_queries(code, name, market)
-        all_articles: list[dict] = []
-        seen_urls: set[str] = set()
+        articles = await self._manager.search_multiple(queries, max_results_per_query=5)
 
-        for query in queries:
-            try:
-                # Tavily's search is synchronous; run in executor to avoid
-                # blocking the event loop.
-                results = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda q=query: self._client.search(  # type: ignore[union-attr]
-                        query=q,
-                        max_results=5,
-                        include_answer=False,
-                    ),
-                )
-
-                for item in results.get("results", []):
-                    url = item.get("url", "")
-                    if url in seen_urls:
-                        continue
-                    seen_urls.add(url)
-                    all_articles.append({
-                        "title": item.get("title", ""),
-                        "content": item.get("content", ""),
-                        "url": url,
-                        "published_date": item.get("published_date", ""),
-                        "source": item.get("source", ""),
-                    })
-            except Exception:
-                logger.exception("Tavily search failed for query: %s", query)
-                # Continue with remaining queries; return partial results.
-
-        return all_articles
-
-    # --------------------------------------------------------------------- #
+        # Convert NewsArticle dataclasses to dicts for backward compatibility
+        return [
+            {
+                "title": a.title,
+                "content": a.content,
+                "url": a.url,
+                "published_date": a.published_date,
+                "source": a.source,
+            }
+            for a in articles
+        ]
 
     @staticmethod
     def _build_queries(code: str, name: str, market: str) -> list[str]:
-        """Build a list of search queries tailored to the market."""
+        """Build expanded search queries tailored to the market."""
         market_upper = market.upper()
 
         if market_upper == "CN":
             return [
                 f"{name} 最新消息",
-                f"{name} 研报 分析",
-                f"{code} 风险 公告",
+                f"{name} 研报 分析 评级",
+                f"{code} 风险 公告 减持",
+                f"{name} 业绩 营收 利润",
+                f"{name} 行业 竞争 前景",
             ]
         elif market_upper == "HK":
             return [
                 f"{name} stock news Hong Kong",
-                f"{code}.HK analysis",
+                f"{code}.HK analyst rating",
+                f"{name} earnings revenue",
             ]
         else:
-            # Default to US-style queries
+            # US-style queries
             return [
                 f"{code} {name} stock news",
                 f"{code} earnings analyst rating",
-                f"{code} stock risk",
+                f"{code} risk litigation insider",
+                f"{code} revenue growth forecast",
+                f"{code} industry outlook",
             ]
+
+
+# ---------------------------------------------------------------------------
+# AI-based sentiment scoring (optional)
+# ---------------------------------------------------------------------------
+
+async def _ai_score_articles(articles: list[dict]) -> list[dict] | None:
+    """Attempt to score articles using an AI provider.
+
+    Batch-sends article titles to LLM for +1/0/-1 classification.
+    Returns scored articles or None if AI is unavailable.
+    """
+    if not articles:
+        return None
+
+    try:
+        from app.services.ai_provider import get_ai_provider
+        provider = get_ai_provider()
+    except Exception:
+        return None
+
+    titles = [a.get("title", "") for a in articles[:20]]
+    numbered = "\n".join(f"{i+1}. {t}" for i, t in enumerate(titles) if t)
+    if not numbered:
+        return None
+
+    prompt = (
+        "Classify each headline's financial sentiment as +1 (positive), "
+        "0 (neutral), or -1 (negative). Respond ONLY with a JSON array "
+        "of integers, e.g. [1, 0, -1, ...]. No other text.\n\n"
+        f"Headlines:\n{numbered}"
+    )
+
+    try:
+        import json
+        raw = await provider.generate(prompt=prompt, system_prompt="You are a financial sentiment classifier.")
+        # Parse the response
+        raw = raw.strip()
+        if raw.startswith("["):
+            scores = json.loads(raw)
+        else:
+            import re
+            match = re.search(r"\[[\s\S]*?\]", raw)
+            if match:
+                scores = json.loads(match.group(0))
+            else:
+                return None
+
+        if not isinstance(scores, list) or len(scores) < len(titles):
+            return None
+
+        # Apply AI scores to articles
+        scored = []
+        for i, article in enumerate(articles[:20]):
+            s = scores[i] if i < len(scores) else 0
+            s = max(-1, min(1, int(s)))
+            scored.append({
+                **article,
+                "score": float(s),
+                "ai_scored": True,
+            })
+
+        # Include remaining articles (beyond 20) with score 0
+        for article in articles[20:]:
+            scored.append({**article, "score": 0.0, "ai_scored": False})
+
+        return scored
+    except Exception:
+        logger.debug("AI sentiment scoring failed, falling back to keywords", exc_info=True)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -191,18 +189,7 @@ class SentimentService:
         self._scorer = SentimentScorer()
 
     async def analyze(self, stock_data: Any) -> SentimentScore:
-        """Run full sentiment analysis for a stock.
-
-        Parameters
-        ----------
-        stock_data
-            An object (typically ``StockData``) with at least ``.code``,
-            ``.name``, and ``.market`` attributes.
-
-        Returns
-        -------
-        SentimentScore
-        """
+        """Run full sentiment analysis for a stock."""
         code: str = getattr(stock_data, "code", "")
         name: str = getattr(stock_data, "name", "")
         market: str = getattr(stock_data, "market", "US")
@@ -227,7 +214,14 @@ class SentimentService:
             )
 
         # ---- Score articles --------------------------------------------- #
-        scored_articles = self._scorer.score_batch(articles)
+        # Try AI scoring first, fall back to keyword scoring
+        ai_scored = await _ai_score_articles(articles)
+        if ai_scored is not None:
+            scored_articles = ai_scored
+            logger.info("Using AI-based sentiment scoring for %d articles", len(scored_articles))
+        else:
+            scored_articles = self._scorer.score_batch(articles)
+
         aggregate = self._scorer.compute_aggregate(scored_articles)
 
         # ---- Sub-scores ------------------------------------------------- #
@@ -279,19 +273,14 @@ class SentimentService:
     def _calc_news_sentiment(overall_score: float) -> float:
         """Map overall_score [-1, 1] -> news_sentiment_score [0, 40]."""
         if overall_score >= 0.5:
-            # 35 – 40
             return 35.0 + (overall_score - 0.5) / 0.5 * 5.0
         elif overall_score >= 0.2:
-            # 25 – 35
             return 25.0 + (overall_score - 0.2) / 0.3 * 10.0
         elif overall_score >= -0.2:
-            # 15 – 25
             return 15.0 + (overall_score + 0.2) / 0.4 * 10.0
         elif overall_score >= -0.5:
-            # 5 – 15
             return 5.0 + (overall_score + 0.5) / 0.3 * 10.0
         else:
-            # 0 – 5
             return max(0.0, 5.0 + (overall_score + 0.5) / 0.5 * 5.0)
 
     @staticmethod
@@ -302,7 +291,6 @@ class SentimentService:
         """Compute event impact score (0-30) based on high-impact categories."""
         high_impact_cats = {CATEGORY_EARNINGS, CATEGORY_INSIDER, CATEGORY_POLICY}
 
-        # Check whether any high-impact category has a strong score
         max_abs_high = 0.0
         has_high_impact = False
         for cat in high_impact_cats:
@@ -311,16 +299,12 @@ class SentimentService:
                 max_abs_high = max(max_abs_high, abs(category_scores[cat]))
 
         if has_high_impact and max_abs_high >= 0.3:
-            # Strong high-impact event: 25-30
             return 25.0 + min(max_abs_high, 1.0) * 5.0
         elif has_high_impact and max_abs_high >= 0.1:
-            # Moderate high-impact event: 15-25
             return 15.0 + (max_abs_high / 0.3) * 10.0
         elif has_high_impact:
-            # Present but weak: 10-15
             return 10.0 + max_abs_high / 0.1 * 5.0
         else:
-            # No significant events — base on general article strength
             if scored_articles:
                 avg_abs = sum(abs(a["score"]) for a in scored_articles) / len(
                     scored_articles
@@ -338,7 +322,6 @@ class SentimentService:
         else:
             base = 5.0 + max(0, article_count - 1) / 7.0 * 2.0
 
-        # Bonus for high attention combined with positive sentiment
         if article_count > 15 and overall_score > 0.2:
             base = min(15.0, base + 2.0)
 
@@ -355,13 +338,10 @@ class SentimentService:
         ) / len(scored_articles)
 
         if avg_quality >= 0.9:
-            # Mostly tier-1: 13-15
             return 13.0 + (avg_quality - 0.9) / 0.1 * 2.0
         elif avg_quality >= 0.6:
-            # Mixed: 8-13
             return 8.0 + (avg_quality - 0.6) / 0.3 * 5.0
         else:
-            # Mostly unknown: 5-8
             return 5.0 + (avg_quality / 0.6) * 3.0
 
     # ------------------------------------------------------------------ #
@@ -390,7 +370,6 @@ class SentimentService:
                 "category": article.get("category", "general"),
             })
 
-        # Sort by date descending (most recent first); undated articles last
         timeline.sort(key=lambda x: x.get("date") or "", reverse=True)
         return timeline
 

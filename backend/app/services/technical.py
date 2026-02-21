@@ -102,7 +102,7 @@ class TechnicalService:
         total = max(0.0, min(100.0, total))
 
         # --- Chart data for frontend ------------------------------------- #
-        chart_data = self._build_chart_data(enriched_df)
+        chart_data = self._build_chart_data(enriched_df, sr_result)
 
         return TechnicalScore(
             total=round(total, 2),
@@ -382,10 +382,17 @@ class TechnicalService:
     # ================================================================== #
     #  CHART DATA
     # ================================================================== #
-    def _build_chart_data(self, df: pd.DataFrame) -> dict:
-        """Build chart-ready data from the enriched DataFrame for frontend ECharts."""
+    def _build_chart_data(self, df: pd.DataFrame, sr_result: dict | None = None) -> dict:
+        """Build chart-ready data from the enriched DataFrame for frontend ECharts.
+
+        Returns a flat dict matching the frontend ``ChartData`` interface:
+        - ohlcv: ``[[open, close, low, high], ...]`` (ECharts candlestick format)
+        - volumes: ``[vol1, vol2, ...]``
+        - ma5/10/20/60, macd_dif/dea/hist: flat arrays at top level
+        - support_levels / resistance_levels: price arrays from S/R analysis
+        """
         if df is None or df.empty:
-            return {"ohlcv": [], "indicators": {}}
+            return {"dates": [], "ohlcv": [], "volumes": []}
 
         # Limit to last 250 trading days for chart rendering
         chart_df = df.tail(250).copy()
@@ -394,32 +401,62 @@ class TechnicalService:
         if "date" in chart_df.columns:
             chart_df["date"] = chart_df["date"].astype(str)
 
-        # OHLCV data
-        ohlcv_cols = ["date", "open", "close", "high", "low", "volume"]
-        available = [c for c in ohlcv_cols if c in chart_df.columns]
-        ohlcv = chart_df[available].replace({np.nan: None}).to_dict(orient="records")
-
-        # Indicator columns
-        indicator_cols = [
-            "ma5", "ma10", "ma20", "ma60", "ma120", "ma250",
-            "macd_dif", "macd_dea", "macd_hist",
-            "rsi",
-            "kdj_k", "kdj_d", "kdj_j",
-            "boll_upper", "boll_mid", "boll_lower",
-        ]
-
-        indicators: dict[str, list] = {}
-        for col in indicator_cols:
-            if col in chart_df.columns:
-                indicators[col] = [
-                    round(float(v), 4) if pd.notna(v) else None
-                    for v in chart_df[col]
-                ]
-
         dates = chart_df["date"].tolist() if "date" in chart_df.columns else []
 
-        return {
+        # OHLCV → ECharts candlestick format: [open, close, low, high]
+        ohlcv: list[list[float | None]] = []
+        volumes: list[float | None] = []
+        for _, row in chart_df.iterrows():
+            ohlcv.append([
+                round(float(row["open"]), 4) if pd.notna(row.get("open")) else None,
+                round(float(row["close"]), 4) if pd.notna(row.get("close")) else None,
+                round(float(row["low"]), 4) if pd.notna(row.get("low")) else None,
+                round(float(row["high"]), 4) if pd.notna(row.get("high")) else None,
+            ])
+            volumes.append(
+                round(float(row["volume"]), 0) if pd.notna(row.get("volume")) else None
+            )
+
+        # Helper to extract a column as a list of rounded floats
+        def _col(name: str) -> list[float | None] | None:
+            if name not in chart_df.columns:
+                return None
+            vals = [
+                round(float(v), 4) if pd.notna(v) else None
+                for v in chart_df[name]
+            ]
+            # Return None if all values are None (avoid sending empty arrays)
+            if all(v is None for v in vals):
+                return None
+            return vals
+
+        # Build flat result matching frontend ChartData interface
+        result: dict = {
             "dates": dates,
             "ohlcv": ohlcv,
-            "indicators": indicators,
+            "volumes": volumes,
         }
+
+        # MA lines
+        for ma in ("ma5", "ma10", "ma20", "ma60", "ma120", "ma250"):
+            data = _col(ma)
+            if data is not None:
+                result[ma] = data
+
+        # MACD
+        for col in ("macd_dif", "macd_dea", "macd_hist"):
+            data = _col(col)
+            if data is not None:
+                result[col] = data
+
+        # Support & resistance levels from S/R analyzer
+        if sr_result:
+            levels = sr_result.get("levels", [])
+            supports = [lv["level"] for lv in levels if lv.get("role") == "support"]
+            resistances = [lv["level"] for lv in levels if lv.get("role") == "resistance"]
+            if supports:
+                result["support_levels"] = supports
+            if resistances:
+                result["resistance_levels"] = resistances
+
+        return result

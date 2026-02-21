@@ -1,12 +1,15 @@
 import React, { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
 import type { ChartData } from '../../types/analysis';
+import { useLocale } from '../../i18n/LocaleContext';
 
 interface KLineChartProps {
   chartData: ChartData;
 }
 
 const KLineChart: React.FC<KLineChartProps> = ({ chartData }) => {
+  const { t } = useLocale();
+
   const option = useMemo(() => {
     if (!chartData || !chartData.dates || !chartData.ohlcv || chartData.ohlcv.length === 0) {
       return null;
@@ -19,7 +22,7 @@ const KLineChart: React.FC<KLineChartProps> = ({ chartData }) => {
     // Volume colors based on candle direction (close >= open = green, else red)
     const volumeColors = ohlcv.map((item) => {
       const [open, close] = item;
-      return close >= open ? '#10b981' : '#ef4444';
+      return (close ?? 0) >= (open ?? 0) ? '#10b981' : '#ef4444';
     });
 
     // Build MA line series
@@ -50,20 +53,24 @@ const KLineChart: React.FC<KLineChartProps> = ({ chartData }) => {
     const markLines: any[] = [];
     if (support_levels && support_levels.length > 0) {
       support_levels.forEach((level) => {
-        markLines.push({
-          yAxis: level,
-          lineStyle: { color: '#10b981', type: 'dashed', width: 1 },
-          label: { show: true, formatter: `S: ${level.toFixed(2)}`, color: '#10b981', fontSize: 10, position: 'insideEndTop' },
-        });
+        if (level != null) {
+          markLines.push({
+            yAxis: level,
+            lineStyle: { color: '#10b981', type: 'dashed', width: 1 },
+            label: { show: true, formatter: `S: ${level.toFixed(2)}`, color: '#10b981', fontSize: 10, position: 'insideEndTop' },
+          });
+        }
       });
     }
     if (resistance_levels && resistance_levels.length > 0) {
       resistance_levels.forEach((level) => {
-        markLines.push({
-          yAxis: level,
-          lineStyle: { color: '#ef4444', type: 'dashed', width: 1 },
-          label: { show: true, formatter: `R: ${level.toFixed(2)}`, color: '#ef4444', fontSize: 10, position: 'insideEndTop' },
-        });
+        if (level != null) {
+          markLines.push({
+            yAxis: level,
+            lineStyle: { color: '#ef4444', type: 'dashed', width: 1 },
+            label: { show: true, formatter: `R: ${level.toFixed(2)}`, color: '#ef4444', fontSize: 10, position: 'insideEndTop' },
+          });
+        }
       });
     }
 
@@ -192,6 +199,12 @@ const KLineChart: React.FC<KLineChartProps> = ({ chartData }) => {
 
     const dataZoomStartPercent = Math.max(0, 100 - Math.min(100, Math.round((60 / dates.length) * 100)));
 
+    const openLabel = t('kline.open');
+    const closeLabel = t('kline.close');
+    const lowLabel = t('kline.low');
+    const highLabel = t('kline.high');
+    const volumeLabel = t('kline.volume');
+
     return {
       backgroundColor: 'transparent',
       animation: false,
@@ -209,14 +222,14 @@ const KLineChart: React.FC<KLineChartProps> = ({ chartData }) => {
           const candleParam = params.find((p: any) => p.seriesName === 'K-Line');
           if (candleParam && candleParam.data) {
             const [open, close, low, high] = candleParam.data;
-            const color = close >= open ? '#10b981' : '#ef4444';
-            html += `<div style="color:${color}">Open: ${open?.toFixed(2)} &nbsp; Close: ${close?.toFixed(2)}</div>`;
-            html += `<div style="color:${color}">Low: ${low?.toFixed(2)} &nbsp; High: ${high?.toFixed(2)}</div>`;
+            const color = (close ?? 0) >= (open ?? 0) ? '#10b981' : '#ef4444';
+            html += `<div style="color:${color}">${openLabel}: ${open?.toFixed(2)} &nbsp; ${closeLabel}: ${close?.toFixed(2)}</div>`;
+            html += `<div style="color:${color}">${lowLabel}: ${low?.toFixed(2)} &nbsp; ${highLabel}: ${high?.toFixed(2)}</div>`;
           }
 
-          const volParam = params.find((p: any) => p.seriesName === 'Volume');
+          const volParam = params.find((p: any) => p.seriesName === volumeLabel);
           if (volParam && volParam.data != null) {
-            html += `<div>Volume: ${Number(volParam.data).toLocaleString()}</div>`;
+            html += `<div>${volumeLabel}: ${Number(volParam.data).toLocaleString()}</div>`;
           }
 
           const indicatorParams = params.filter((p: any) =>
@@ -293,7 +306,7 @@ const KLineChart: React.FC<KLineChartProps> = ({ chartData }) => {
         },
         // Volume bars overlaid on main chart
         {
-          name: 'Volume',
+          name: volumeLabel,
           type: 'bar',
           data: volumes || [],
           xAxisIndex: 0,
@@ -312,12 +325,12 @@ const KLineChart: React.FC<KLineChartProps> = ({ chartData }) => {
         ...macdSeries,
       ],
     };
-  }, [chartData]);
+  }, [chartData, t]);
 
   if (!chartData || !chartData.dates || !chartData.ohlcv || chartData.ohlcv.length === 0) {
     return (
       <div className="w-full h-[500px] flex items-center justify-center text-slate-400">
-        <p>No K-Line chart data available</p>
+        <p>{t('chart.no_kline')}</p>
       </div>
     );
   }
@@ -325,7 +338,7 @@ const KLineChart: React.FC<KLineChartProps> = ({ chartData }) => {
   if (!option) {
     return (
       <div className="w-full h-[500px] flex items-center justify-center text-slate-400">
-        <p>Loading chart...</p>
+        <p>{t('chart.loading')}</p>
       </div>
     );
   }

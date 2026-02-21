@@ -1,3 +1,5 @@
+import { useLocale } from '../../i18n/LocaleContext';
+
 interface VerdictBannerProps {
   verdict: string;
   composite: number;
@@ -5,35 +7,45 @@ interface VerdictBannerProps {
   summary?: string;
 }
 
-const verdictConfig: Record<string, { label: string; color: string; bg: string }> = {
-  strong_buy: { label: 'STRONG BUY', color: '#10b981', bg: 'rgba(16,185,129,0.1)' },
-  buy: { label: 'BUY', color: '#06b6d4', bg: 'rgba(6,182,212,0.1)' },
-  hold: { label: 'HOLD', color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' },
-  sell: { label: 'SELL', color: '#f97316', bg: 'rgba(249,115,22,0.1)' },
-  strong_sell: { label: 'STRONG SELL', color: '#ef4444', bg: 'rgba(239,68,68,0.1)' },
+const verdictColorMap: Record<string, { color: string; bg: string }> = {
+  strong_buy: { color: '#10b981', bg: 'rgba(16,185,129,0.1)' },
+  buy: { color: '#06b6d4', bg: 'rgba(6,182,212,0.1)' },
+  hold: { color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' },
+  sell: { color: '#f97316', bg: 'rgba(249,115,22,0.1)' },
+  strong_sell: { color: '#ef4444', bg: 'rgba(239,68,68,0.1)' },
+};
+
+const verdictLabelKeys: Record<string, string> = {
+  strong_buy: 'verdict.strong_buy',
+  buy: 'verdict.buy',
+  hold: 'verdict.hold',
+  sell: 'verdict.sell',
+  strong_sell: 'verdict.strong_sell',
 };
 
 export default function VerdictBanner({ verdict, composite, confidence, summary }: VerdictBannerProps) {
-  const config = verdictConfig[verdict] || verdictConfig.hold;
+  const { t } = useLocale();
+  const colors = verdictColorMap[verdict] || verdictColorMap.hold;
+  const labelKey = verdictLabelKeys[verdict] || 'verdict.hold';
 
   return (
     <div
       className="rounded-xl border p-6 backdrop-blur-sm"
       style={{
-        backgroundColor: config.bg,
-        borderColor: `${config.color}30`,
+        backgroundColor: colors.bg,
+        borderColor: `${colors.color}30`,
       }}
     >
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-4">
           <span
             className="text-3xl font-bold tracking-wider"
-            style={{ color: config.color }}
+            style={{ color: colors.color }}
           >
-            {config.label}
+            {t(labelKey as any)}
           </span>
           <div className="flex items-baseline gap-2">
-            <span className="text-text-secondary text-sm">Composite</span>
+            <span className="text-text-secondary text-sm">{t('verdict.composite')}</span>
             <span className="text-xl font-semibold text-text-primary">
               {composite.toFixed(1)}
             </span>
@@ -42,7 +54,7 @@ export default function VerdictBanner({ verdict, composite, confidence, summary 
         </div>
         {confidence != null && (
           <div className="text-right">
-            <span className="text-text-secondary text-xs">Confidence</span>
+            <span className="text-text-secondary text-xs">{t('verdict.confidence')}</span>
             <div className="text-text-primary font-medium">
               {(confidence * 100).toFixed(0)}%
             </div>

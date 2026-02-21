@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { useAnalysisStore } from '../../stores/analysisStore';
+import { useLocale } from '../../i18n/LocaleContext';
 
 export default function StockSearchBar() {
   const [code, setCode] = useState('');
   const { analyze, loading } = useAnalysisStore();
+  const { t } = useLocale();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,7 +31,7 @@ export default function StockSearchBar() {
             type="text"
             value={code}
             onChange={(e) => setCode(e.target.value)}
-            placeholder="Enter stock code (600519, AAPL, 00700...)"
+            placeholder={t('search.placeholder')}
             disabled={loading}
             className="w-full px-4 py-3 bg-bg-card border border-border rounded-lg text-text-primary
                        placeholder:text-text-muted focus:outline-none focus:border-accent-cyan
@@ -48,7 +50,7 @@ export default function StockSearchBar() {
                      rounded-lg hover:bg-accent-cyan/30 disabled:opacity-40 disabled:cursor-not-allowed
                      transition-all text-sm font-medium"
         >
-          {loading ? 'Analyzing...' : 'Analyze'}
+          {loading ? t('search.analyzing') : t('search.analyze')}
         </button>
       </div>
       <div className="flex gap-2 mt-3 flex-wrap">

@@ -1,12 +1,13 @@
 import type { TechnicalDetail } from '../../types/analysis';
 import KLineChart from '../charts/KLineChart';
+import { useLocale } from '../../i18n/LocaleContext';
 
 interface Props {
   detail: TechnicalDetail;
 }
 
 function SubScoreBar({ label, score, max }: { label: string; score: number; max: number }) {
-  const pct = Math.min((score / max) * 100, 100);
+  const pct = Math.min(((score ?? 0) / max) * 100, 100);
   const color = pct >= 75 ? '#10b981' : pct >= 50 ? '#06b6d4' : pct >= 30 ? '#f59e0b' : '#ef4444';
   return (
     <div className="flex items-center gap-3">
@@ -14,7 +15,7 @@ function SubScoreBar({ label, score, max }: { label: string; score: number; max:
       <div className="flex-1 h-2 bg-bg-primary rounded-full overflow-hidden">
         <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, backgroundColor: color }} />
       </div>
-      <span className="text-text-primary text-xs w-12 text-right">{score.toFixed(1)}/{max}</span>
+      <span className="text-text-primary text-xs w-12 text-right">{(score ?? 0).toFixed(1)}/{max}</span>
     </div>
   );
 }
@@ -37,36 +38,37 @@ export default function TechnicalPanel({ detail }: Props) {
   const sr = detail.support_resistance || {};
   const flow = detail.institutional_flow || {};
   const chip = detail.chip_data || {};
+  const { t } = useLocale();
 
   return (
     <div className="space-y-6">
       {/* Sub-scores */}
       <div className="bg-bg-card border border-border rounded-xl p-5">
-        <h3 className="text-text-primary font-medium mb-4">Technical Sub-scores</h3>
+        <h3 className="text-text-primary font-medium mb-4">{t('technical.subscores')}</h3>
         <div className="space-y-3">
-          <SubScoreBar label="Trend" score={detail.trend_score} max={30} />
-          <SubScoreBar label="Momentum" score={detail.momentum_score} max={20} />
-          <SubScoreBar label="Volume" score={detail.volume_score} max={20} />
-          <SubScoreBar label="Structure" score={detail.structure_score} max={15} />
-          <SubScoreBar label="Pattern" score={detail.pattern_score} max={15} />
+          <SubScoreBar label={t('technical.trend')} score={detail.trend_score} max={30} />
+          <SubScoreBar label={t('technical.momentum')} score={detail.momentum_score} max={20} />
+          <SubScoreBar label={t('technical.volume')} score={detail.volume_score} max={20} />
+          <SubScoreBar label={t('technical.structure')} score={detail.structure_score} max={15} />
+          <SubScoreBar label={t('technical.pattern')} score={detail.pattern_score} max={15} />
         </div>
       </div>
 
       {/* K-Line Chart */}
       <div className="bg-bg-card border border-border rounded-xl p-5">
-        <h3 className="text-text-primary font-medium mb-4">K-Line Chart</h3>
+        <h3 className="text-text-primary font-medium mb-4">{t('technical.kline')}</h3>
         {detail.chart_data ? (
           <KLineChart chartData={detail.chart_data} />
         ) : (
           <div className="h-[400px] flex items-center justify-center text-text-muted">
-            Chart data not available
+            {t('technical.kline_empty')}
           </div>
         )}
       </div>
 
       {/* Technical Indicators */}
       <div className="bg-bg-card border border-border rounded-xl p-5">
-        <h3 className="text-text-primary font-medium mb-4">Key Indicators</h3>
+        <h3 className="text-text-primary font-medium mb-4">{t('technical.indicators')}</h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {ind.rsi != null && (
             <IndicatorBadge label="RSI(14)" value={Number(ind.rsi).toFixed(1)} signal={ind.rsi_zone} />
@@ -92,28 +94,34 @@ export default function TechnicalPanel({ detail }: Props) {
       {/* Support & Resistance */}
       {sr.levels && Array.isArray(sr.levels) && sr.levels.length > 0 && (
         <div className="bg-bg-card border border-border rounded-xl p-5">
-          <h3 className="text-text-primary font-medium mb-4">Support & Resistance</h3>
+          <h3 className="text-text-primary font-medium mb-4">{t('technical.sr')}</h3>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <h4 className="text-accent-green text-xs mb-2 uppercase tracking-wider">Support</h4>
+              <h4 className="text-accent-green text-xs mb-2 uppercase tracking-wider">{t('technical.support')}</h4>
               <div className="space-y-1">
-                {sr.levels.filter((l: any) => l.type === 'support').slice(0, 5).map((l: any, i: number) => (
-                  <div key={i} className="flex justify-between text-sm">
-                    <span className="text-text-secondary">{l.source || 'Level'}</span>
-                    <span className="text-accent-green font-medium">{Number(l.price).toFixed(2)}</span>
-                  </div>
-                ))}
+                {sr.levels.filter((l: any) => l.role === 'support' || l.type === 'support').slice(0, 5).map((l: any, i: number) => {
+                  const price = Number(l.level ?? l.price);
+                  return (
+                    <div key={i} className="flex justify-between text-sm">
+                      <span className="text-text-secondary">{l.sources?.join(', ') || l.source || 'Level'}</span>
+                      <span className="text-accent-green font-medium">{isNaN(price) ? 'N/A' : price.toFixed(2)}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
             <div>
-              <h4 className="text-accent-red text-xs mb-2 uppercase tracking-wider">Resistance</h4>
+              <h4 className="text-accent-red text-xs mb-2 uppercase tracking-wider">{t('technical.resistance')}</h4>
               <div className="space-y-1">
-                {sr.levels.filter((l: any) => l.type === 'resistance').slice(0, 5).map((l: any, i: number) => (
-                  <div key={i} className="flex justify-between text-sm">
-                    <span className="text-text-secondary">{l.source || 'Level'}</span>
-                    <span className="text-accent-red font-medium">{Number(l.price).toFixed(2)}</span>
-                  </div>
-                ))}
+                {sr.levels.filter((l: any) => l.role === 'resistance' || l.type === 'resistance').slice(0, 5).map((l: any, i: number) => {
+                  const price = Number(l.level ?? l.price);
+                  return (
+                    <div key={i} className="flex justify-between text-sm">
+                      <span className="text-text-secondary">{l.sources?.join(', ') || l.source || 'Level'}</span>
+                      <span className="text-accent-red font-medium">{isNaN(price) ? 'N/A' : price.toFixed(2)}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -123,9 +131,9 @@ export default function TechnicalPanel({ detail }: Props) {
       {/* Institutional Flow (CN Only) */}
       {flow.classification && flow.classification !== 'unavailable' && (
         <div className="bg-bg-card border border-border rounded-xl p-5">
-          <h3 className="text-text-primary font-medium mb-4">Institutional Fund Flow</h3>
+          <h3 className="text-text-primary font-medium mb-4">{t('technical.fund_flow')}</h3>
           <div className="flex items-center gap-4 mb-3">
-            <span className="text-text-secondary text-sm">Classification:</span>
+            <span className="text-text-secondary text-sm">{t('technical.classification')}:</span>
             <span className={`font-medium ${
               flow.classification === 'accumulating' ? 'text-accent-green' :
               flow.classification === 'distributing' ? 'text-accent-red' : 'text-text-secondary'
@@ -149,29 +157,29 @@ export default function TechnicalPanel({ detail }: Props) {
       {/* Chip Distribution (CN Only) */}
       {chip.health && chip.health !== 'unavailable' && (
         <div className="bg-bg-card border border-border rounded-xl p-5">
-          <h3 className="text-text-primary font-medium mb-3">Chip Distribution</h3>
+          <h3 className="text-text-primary font-medium mb-3">{t('technical.chip')}</h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
             {chip.profit_ratio != null && (
               <div className="bg-bg-primary rounded p-3">
-                <div className="text-text-muted text-xs">Profit Ratio</div>
+                <div className="text-text-muted text-xs">{t('technical.profit_ratio')}</div>
                 <div className="text-text-primary font-medium">{Number(chip.profit_ratio).toFixed(1)}%</div>
               </div>
             )}
             {chip.avg_cost != null && (
               <div className="bg-bg-primary rounded p-3">
-                <div className="text-text-muted text-xs">Avg Cost</div>
+                <div className="text-text-muted text-xs">{t('technical.avg_cost')}</div>
                 <div className="text-text-primary font-medium">{Number(chip.avg_cost).toFixed(2)}</div>
               </div>
             )}
             {chip.concentration != null && (
               <div className="bg-bg-primary rounded p-3">
-                <div className="text-text-muted text-xs">Concentration</div>
+                <div className="text-text-muted text-xs">{t('technical.concentration')}</div>
                 <div className="text-text-primary font-medium">{Number(chip.concentration).toFixed(1)}%</div>
               </div>
             )}
             {chip.health && (
               <div className="bg-bg-primary rounded p-3">
-                <div className="text-text-muted text-xs">Health</div>
+                <div className="text-text-muted text-xs">{t('technical.chip_health')}</div>
                 <div className={`font-medium ${chip.health === 'healthy' ? 'text-accent-green' : chip.health === 'risky' ? 'text-accent-red' : 'text-text-secondary'}`}>{chip.health}</div>
               </div>
             )}
@@ -182,7 +190,7 @@ export default function TechnicalPanel({ detail }: Props) {
       {/* Pattern Recognition */}
       {detail.patterns && detail.patterns.length > 0 && (
         <div className="bg-bg-card border border-border rounded-xl p-5">
-          <h3 className="text-text-primary font-medium mb-3">Pattern Alerts</h3>
+          <h3 className="text-text-primary font-medium mb-3">{t('technical.patterns')}</h3>
           <div className="space-y-2">
             {detail.patterns.map((p, i) => (
               <div key={i} className="flex items-center gap-3 bg-bg-primary rounded-lg p-3">

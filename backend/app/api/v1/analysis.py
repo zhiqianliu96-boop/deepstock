@@ -14,6 +14,7 @@ router = APIRouter()
 class AnalysisRequest(BaseModel):
     code: str
     ai_provider: Optional[str] = None
+    lang: Optional[str] = None
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -38,7 +39,7 @@ class NumpyEncoder(json.JSONEncoder):
 async def run_analysis(req: AnalysisRequest, db: Session = Depends(get_db)):
     from app.services.orchestrator import run_full_analysis
 
-    result = await run_full_analysis(req.code, req.ai_provider, db)
+    result = await run_full_analysis(req.code, req.ai_provider, db, lang=req.lang)
     # Use custom encoder to handle numpy types
     content = json.loads(json.dumps(result, cls=NumpyEncoder, default=str))
     return JSONResponse(content=content)

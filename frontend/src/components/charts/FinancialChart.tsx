@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
+import { useLocale } from '../../i18n/LocaleContext';
 
 interface FinancialChartProps {
   metrics: Record<string, any>;
@@ -24,6 +25,8 @@ const formatNumber = (value: number): string => {
 };
 
 const FinancialChart: React.FC<FinancialChartProps> = ({ metrics }) => {
+  const { t } = useLocale();
+
   const chartConfig = useMemo(() => {
     if (!metrics) return null;
 
@@ -50,7 +53,7 @@ const FinancialChart: React.FC<FinancialChartProps> = ({ metrics }) => {
         ? netMarginData.map((d) => (typeof d.value === 'number' ? d.value : 0))
         : null;
 
-      return buildFullChartOption(periods, revenues, profits, grossMargins, netMargins);
+      return buildFullChartOption(periods, revenues, profits, grossMargins, netMargins, t);
     }
 
     // Strategy 2: Simple arrays at top-level keys
@@ -64,24 +67,24 @@ const FinancialChart: React.FC<FinancialChartProps> = ({ metrics }) => {
       const profits: number[] = metrics.net_profit || metrics.profit || [];
       const grossMargins: number[] | null = metrics.gross_margin || null;
       const netMargins: number[] | null = metrics.net_margin || null;
-      return buildFullChartOption(periods, revenues, profits, grossMargins, netMargins);
+      return buildFullChartOption(periods, revenues, profits, grossMargins, netMargins, t);
     }
 
     // Strategy 3: Fallback — extract scalar metrics for card display
     return null;
-  }, [metrics]);
+  }, [metrics, t]);
 
   if (!metrics) {
     return (
       <div className="w-full h-[400px] flex items-center justify-center text-slate-400">
-        <p>Financial chart data not available</p>
+        <p>{t('chart.no_financial')}</p>
       </div>
     );
   }
 
   // If we couldn't build a chart, show metric cards as fallback
   if (!chartConfig) {
-    return <MetricCards metrics={metrics} />;
+    return <MetricCards metrics={metrics} noDataLabel={t('chart.no_financial')} />;
   }
 
   return (
@@ -101,11 +104,12 @@ function buildFullChartOption(
   revenues: number[],
   profits: number[],
   grossMargins: number[] | null,
-  netMargins: number[] | null
+  netMargins: number[] | null,
+  t: (key: any) => string,
 ) {
   const series: any[] = [
     {
-      name: 'Revenue',
+      name: t('chart.revenue'),
       type: 'bar',
       data: revenues,
       yAxisIndex: 0,
@@ -119,7 +123,7 @@ function buildFullChartOption(
 
   if (profits && profits.length > 0) {
     series.push({
-      name: 'Net Profit',
+      name: t('chart.net_profit'),
       type: 'bar',
       data: profits,
       yAxisIndex: 0,
@@ -134,7 +138,7 @@ function buildFullChartOption(
 
   if (grossMargins && grossMargins.length > 0) {
     series.push({
-      name: 'Gross Margin %',
+      name: t('chart.gross_margin'),
       type: 'line',
       data: grossMargins.map((v) => (typeof v === 'number' ? +(v * (v > 1 ? 1 : 100)).toFixed(2) : null)),
       yAxisIndex: 1,
@@ -148,7 +152,7 @@ function buildFullChartOption(
 
   if (netMargins && netMargins.length > 0) {
     series.push({
-      name: 'Net Margin %',
+      name: t('chart.net_margin'),
       type: 'line',
       data: netMargins.map((v) => (typeof v === 'number' ? +(v * (v > 1 ? 1 : 100)).toFixed(2) : null)),
       yAxisIndex: 1,
@@ -240,7 +244,7 @@ function buildFullChartOption(
 }
 
 // Fallback: styled metric cards grid
-const MetricCards: React.FC<{ metrics: Record<string, any> }> = ({ metrics }) => {
+const MetricCards: React.FC<{ metrics: Record<string, any>; noDataLabel: string }> = ({ metrics, noDataLabel }) => {
   const displayMetrics = useMemo(() => {
     const result: { label: string; value: string }[] = [];
 
@@ -288,7 +292,7 @@ const MetricCards: React.FC<{ metrics: Record<string, any> }> = ({ metrics }) =>
   if (displayMetrics.length === 0) {
     return (
       <div className="w-full h-[400px] flex items-center justify-center text-slate-400">
-        <p>Financial chart data not available</p>
+        <p>{noDataLabel}</p>
       </div>
     );
   }
