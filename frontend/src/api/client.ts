@@ -2,7 +2,7 @@ import axios from 'axios';
 import type { AnalysisRequest, AnalysisResult, HistoryRecord } from '../types/analysis';
 
 const api = axios.create({
-  baseURL: (import.meta.env.VITE_API_URL || '') + '/api/v1',
+  baseURL: '/api/v1',
   timeout: 300000, // 5 min for full analysis
 });
 

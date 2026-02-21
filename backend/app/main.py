@@ -31,15 +31,7 @@ app.include_router(api_router, prefix="/api/v1")
 
 @app.get("/health")
 async def health():
-    import os
-    from app.config import settings
-    return {
-        "status": "ok",
-        "gemini_key_set": bool(settings.gemini_api_key),
-        "tavily_key_set": bool(settings.tavily_api_key),
-        "gemini_env": bool(os.environ.get("GEMINI_API_KEY")),
-        "tavily_env": bool(os.environ.get("TAVILY_API_KEY")),
-    }
+    return {"status": "ok"}
 
 
 if __name__ == "__main__":
